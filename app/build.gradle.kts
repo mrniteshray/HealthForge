@@ -80,4 +80,7 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation("androidx.datastore:datastore-preferences-core:1.1.7")
+    
+    // PDF processing
+    implementation("com.itextpdf:itext7-core:7.2.5")
 }

@@ -1,21 +1,30 @@
 package com.niteshray.xapps.healthforge.feature.home.presentation.compose
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.runtime.Composable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -23,7 +32,47 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseAuth
 import java.time.LocalTime
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.launch
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.niteshray.xapps.healthforge.feature.home.presentation.viewmodel.HomeViewModel
+import com.itextpdf.kernel.pdf.PdfDocument
+import com.itextpdf.kernel.pdf.PdfReader
+import com.itextpdf.kernel.pdf.canvas.parser.PdfTextExtractor
+import java.io.InputStream
+import androidx.compose.runtime.LaunchedEffect
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+
+/*
+ * MEDICATION REMINDER SYSTEM - ALARMMANAGER INTEGRATION GUIDE
+ * 
+ * To schedule notifications using AlarmManager:
+ * 
+ * 1. For each medication.times, call:
+ *    val timeInMillis = medicationTime.toMillis()
+ *    
+ * 2. Schedule alarm:
+ *    alarmManager.setRepeating(
+ *        AlarmManager.RTC_WAKEUP,
+ *        timeInMillis,
+ *        AlarmManager.INTERVAL_DAY,
+ *        pendingIntent
+ *    )
+ * 
+ * 3. Create unique requestCode for each reminder:
+ *    val requestCode = "${medication.id}_${medicationTime.hour}_${medicationTime.minute}".hashCode()
+ * 
+ * 4. Pass medication data to notification:
+ *    intent.putExtra("medication_name", medication.name)
+ *    intent.putExtra("instructions", medication.instructions)
+ */
 
 data class Task(
     val id: Int,
@@ -33,41 +82,147 @@ data class Task(
     val time: String,
     val category: TaskCategory,
     val isCompleted: Boolean = false,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val priority: Priority = Priority.MEDIUM
 )
 
-data class HealthInfo(
+data class HealthMetric(
     val title: String,
     val value: String,
     val unit: String,
-    val status: HealthStatus,
+    val trend: Trend,
     val icon: ImageVector,
     val color: Color
 )
 
-enum class TimeBlock(val displayName: String) {
-    MORNING("Morning"),
-    AFTERNOON("Afternoon"),
-    EVENING("Evening"),
-    NIGHT("Night")
+data class MedicalReport(
+    val id: Int,
+    val name: String,
+    val uploadDate: String,
+    val type: ReportType,
+    val status: ReportStatus
+)
+
+data class Medication(
+    val id: Int,
+    val name: String,
+    val instructions: String = "",
+    val times: List<MedicationTime>,
+    val startDate: String,
+    val endDate: String? = null,
+    val isActive: Boolean = true
+)
+
+data class MedicationTime(
+    val hour: Int,
+    val minute: Int,
+    val timeBlock: TimeBlock,
+    val displayTime: String // 24-hour format for AlarmManager
+) {
+    // Convert to milliseconds for AlarmManager
+    fun toMillis(): Long {
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, hour)
+            set(java.util.Calendar.MINUTE, minute)
+            set(java.util.Calendar.SECOND, 0)
+        }
+        return calendar.timeInMillis
+    }
+    
+    // 12-hour format for user display
+    fun get12HourFormat(): String {
+        val period = if (hour < 12) "AM" else "PM"
+        val displayHour = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
+        return String.format("%d:%02d %s", displayHour, minute, period)
+    }
+}
+
+
+
+enum class TimeBlock(val displayName: String, val icon: ImageVector) {
+    MORNING("Morning", Icons.Filled.WbSunny),
+    AFTERNOON("Afternoon", Icons.Filled.LightMode),
+    EVENING("Evening", Icons.Filled.Brightness3),
+    NIGHT("Night", Icons.Filled.Bedtime)
 }
 
 enum class TaskCategory(val displayName: String, val color: Color) {
+    MEDICATION("Medication", Color(0xFF2196F3)),
     EXERCISE("Exercise", Color(0xFF4CAF50)),
     DIET("Diet", Color(0xFFFF9800)),
-    LIFESTYLE("Lifestyle", Color(0xFF2196F3)),
-    MONITORING("Monitoring", Color(0xFF9C27B0))
+    MONITORING("Monitoring", Color(0xFF9C27B0)),
+    LIFESTYLE("Lifestyle", Color(0xFF00BCD4)),
+    GENERAL("General", Color(0xFF607D8B))
 }
 
-enum class HealthStatus {
-    GOOD, WARNING, CRITICAL
+enum class Priority(val displayName: String, val color: Color) {
+    HIGH("High", Color(0xFFE53E3E)),
+    MEDIUM("Medium", Color(0xFFED8936)),
+    LOW("Low", Color(0xFF38A169))
+}
+
+enum class Trend { UP, DOWN, STABLE }
+
+enum class ReportType(val displayName: String, val icon: ImageVector) {
+    BLOOD_TEST("Blood Test", Icons.Filled.Bloodtype),
+    XRAY("X-Ray", Icons.Filled.MedicalServices),
+    MRI("MRI Scan", Icons.Filled.Scanner),
+    ECG("ECG Report", Icons.Filled.MonitorHeart),
+    PRESCRIPTION("Prescription", Icons.Filled.Receipt),
+    OTHER("Other", Icons.Filled.Description)
+}
+
+enum class ReportStatus { PROCESSING, ANALYZED, PENDING }
+
+enum class FrequencyType(val displayName: String) {
+    ONCE_DAILY("Once daily"),
+    TWICE_DAILY("Twice daily"), 
+    THREE_TIMES("3 times daily"),
+    FOUR_TIMES("4 times daily"),
+    CUSTOM("Custom times")
 }
 
 @Composable
-fun HealthcareDashboard() {
-    var tasks by remember { mutableStateOf(getDummyTasks()) }
-    val healthInfo = remember { getDummyHealthInfo() }
+fun HealthcareDashboard(
+    viewModel: HomeViewModel = hiltViewModel()
+) {
+    var tasks by remember { mutableStateOf<List<Task>>(emptyList()) }
+    var medications by remember { mutableStateOf<List<Medication>>(emptyList()) }
+    var showAddMedicationDialog by remember { mutableStateOf(false) }
+    var showAddTaskDialog by remember { mutableStateOf(false) }
+    var showEditTaskDialog by remember { mutableStateOf(false) }
+    var taskToEdit by remember { mutableStateOf<Task?>(null) }
     val currentHour = LocalTime.now().hour
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    
+    // ViewModel states
+    val generatedTasks by viewModel.generatedTasks
+    val isProcessingReport by viewModel.isLoading
+    val errorMessage by viewModel.errorMessage
+    
+    // PDF picker launcher
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            coroutineScope.launch {
+                try {
+                    val extractedText = extractTextFromPDF(context, uri)
+                    viewModel.generateTasksFromReport(extractedText)
+                } catch (e: Exception) {
+                    viewModel.errorMessage.value = "Failed to process PDF: ${e.message}"
+                }
+            }
+        }
+    }
+    
+    // Use generated tasks from ViewModel
+    LaunchedEffect(generatedTasks) {
+        if (generatedTasks.isNotEmpty()) {
+            tasks = generatedTasks
+        }
+    }
 
     val greeting = when (currentHour) {
         in 5..11 -> "Good Morning"
@@ -76,99 +231,347 @@ fun HealthcareDashboard() {
         else -> "Good Night"
     }
 
-    val completedTasks = tasks.count { it.isCompleted }
-    val totalTasks = tasks.size
-    val adherencePercentage = if (totalTasks > 0) (completedTasks * 100) / totalTasks else 0
+    val currentTimeBlock = when (currentHour) {
+        in 6..11 -> TimeBlock.MORNING
+        in 12..16 -> TimeBlock.AFTERNOON
+        in 17..20 -> TimeBlock.EVENING
+        else -> TimeBlock.NIGHT
+    }
+
+    // Show all tasks instead of filtering by time block
+    val currentTasks = tasks // Show all tasks for now
+    // val currentTasks = tasks.filter { it.timeBlock == currentTimeBlock } // Original time block filtering
+    val completedTasks = currentTasks.count { it.isCompleted }
+    val totalCurrentTasks = currentTasks.size
+    val adherencePercentage = if (totalCurrentTasks > 0) (completedTasks * 100) / totalCurrentTasks else 0
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                    )
+                )
+            ),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Greeting Section
+        // Header Section
         item {
-            GreetingSection(
+            HeaderSection(
                 greeting = greeting,
-                userName = "Nitesh",
-                adherencePercentage = adherencePercentage
+                userName = "Nitesh Ray",
+                currentTimeBlock = currentTimeBlock
             )
         }
 
-        // Health Info Cards
+        // Recovery Progress
         item {
-            HealthInfoSection(healthInfo = healthInfo)
-        }
-
-        // Tasks Section Header
-        item {
-            Text(
-                text = "Today's Care Plan",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+            RecoveryProgressSection(
+                completedToday = tasks.count { it.isCompleted },
+                totalTasks = tasks.size
             )
         }
 
-        // Group tasks by time block
-        val groupedTasks = tasks.groupBy { it.timeBlock }
+        // Quick Actions Section
+        item {
+            QuickActionsSection(
+                onUploadReport = { 
+                    pdfPickerLauncher.launch("application/pdf")
+                },
+                onViewReports = { /* TODO */ },
+                onAddMedication = { showAddMedicationDialog = true },
+                onAddTask = { showAddTaskDialog = true }
+            )
+        }
+        
+        // Processing indicator
+        if (isProcessingReport) {
+            item {
+                ProcessingIndicator()
+            }
+        }
 
-        TimeBlock.values().forEach { timeBlock ->
-            val blockTasks = groupedTasks[timeBlock] ?: emptyList()
-            if (blockTasks.isNotEmpty()) {
-                item {
-                    TimeBlockSection(
-                        timeBlock = timeBlock,
-                        tasks = blockTasks,
-                        onTaskToggle = { taskId ->
-                            tasks = tasks.map { task ->
-                                if (task.id == taskId) {
-                                    task.copy(isCompleted = !task.isCompleted)
-                                } else task
-                            }
+        // All Tasks Section or Empty State
+        if (currentTasks.isNotEmpty()) {
+            item {
+                AllTasksSection(
+                    tasks = currentTasks,
+                    onTaskToggle = { taskId ->
+                        tasks = tasks.map { task ->
+                            if (task.id == taskId) {
+                                task.copy(isCompleted = !task.isCompleted)
+                            } else task
                         }
+                    },
+                    onTaskEdit = { task ->
+                        taskToEdit = task
+                        showEditTaskDialog = true
+                    }
+                )
+            }
+        } else if (tasks.isEmpty() && !isProcessingReport) {
+            item {
+                EmptyTasksState(onUploadReport = { 
+                    pdfPickerLauncher.launch("application/pdf")
+                })
+            }
+        }
+    }
+
+    // Add Medication Dialog
+    if (showAddMedicationDialog) {
+        AddMedicationDialog(
+            onDismiss = { showAddMedicationDialog = false },
+            onAddMedication = { medication ->
+                medications = medications + medication
+
+                val newTasks = medication.times.mapIndexed { index, medicationTime ->
+                    Task(
+                        id = (tasks.maxOfOrNull { it.id } ?: 0) + index + 1,
+                        title = "Take ${medication.name}",
+                        description = if (medication.instructions.isNotEmpty()) medication.instructions else "Medication reminder",
+                        timeBlock = medicationTime.timeBlock,
+                        time = medicationTime.get12HourFormat(),
+                        category = TaskCategory.MEDICATION,
+                        isCompleted = false,
+                        icon = Icons.Filled.Medication,
+                        priority = Priority.HIGH
                     )
                 }
+                tasks = tasks + newTasks
+                showAddMedicationDialog = false
+            }
+        )
+    }
+    
+    // Add Task Dialog
+    if (showAddTaskDialog) {
+        AddTaskDialog(
+            onDismiss = { showAddTaskDialog = false },
+            onConfirm = { newTask ->
+                viewModel.addTask(newTask)
+                showAddTaskDialog = false
+            }
+        )
+    }
+    
+    // Edit Task Dialog
+    if (showEditTaskDialog && taskToEdit != null) {
+        EditTaskDialog(
+            task = taskToEdit!!,
+            onDismiss = { 
+                showEditTaskDialog = false 
+                taskToEdit = null
+            },
+            onConfirm = { updatedTask ->
+                viewModel.updateTask(updatedTask)
+                showEditTaskDialog = false
+                taskToEdit = null
+            }
+        )
+    }
+}
+
+@Composable
+fun HeaderSection(
+    greeting: String,
+    userName: String,
+    currentTimeBlock: TimeBlock
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Text(
+            text = "$greeting, $userName!",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = currentTimeBlock.icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Complete your daily health tasks",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+fun QuickActionsSection(
+    onUploadReport: () -> Unit,
+    onViewReports: () -> Unit,
+    onAddMedication: () -> Unit,
+    onAddTask: () -> Unit
+) {
+    Column {
+        Text(
+            text = "Quick Actions",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Upload Report Card
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onUploadReport() },
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CloudUpload,
+                        contentDescription = "Upload Report",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Upload\nReport",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            // Add Medication Card
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onAddMedication() },
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "Add Medication",
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Add\nMedication",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            // View Reports Card
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onViewReports() },
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Assessment,
+                        contentDescription = "View Reports",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "View\nReports",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // Add Task Card (full width)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onAddTask() },
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Add Task",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Add New Task",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
     }
 }
 
 @Composable
-fun GreetingSection(
-    greeting: String,
-    userName: String,
-    adherencePercentage: Int
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Left side - Greeting text
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = "$greeting, $userName!",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                text = "Focus on recovery",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-            )
-        }
-    }
-}
-
-@Composable
-fun HealthInfoSection(healthInfo: List<HealthInfo>) {
+fun HealthMetricsSection(metrics: List<HealthMetric>) {
     Column {
         Text(
             text = "Health Overview",
@@ -180,116 +583,243 @@ fun HealthInfoSection(healthInfo: List<HealthInfo>) {
 
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp)
+            contentPadding = PaddingValues(horizontal = 2.dp)
         ) {
-            items(healthInfo) { info ->
-                HealthInfoCard(healthInfo = info)
+            items(metrics) { metric ->
+                HealthMetricCard(metric = metric)
             }
         }
     }
 }
 
 @Composable
-fun HealthInfoCard(healthInfo: HealthInfo) {
+fun HealthMetricCard(metric: HealthMetric) {
     Card(
         modifier = Modifier
             .width(140.dp)
-            .height(100.dp),
+            .height(120.dp),
         colors = CardDefaults.cardColors(
-            containerColor = healthInfo.color.copy(alpha = 0.1f)
+            containerColor = metric.color.copy(alpha = 0.1f)
         ),
-        border = BorderStroke(1.dp, healthInfo.color.copy(alpha = 0.3f))
+        border = BorderStroke(1.dp, metric.color.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.Center,
+                .padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = healthInfo.icon,
-                contentDescription = null,
-                tint = healthInfo.color,
-                modifier = Modifier.size(24.dp)
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = metric.icon,
+                    contentDescription = null,
+                    tint = metric.color,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = when (metric.trend) {
+                        Trend.UP -> Icons.Filled.TrendingUp
+                        Trend.DOWN -> Icons.Filled.TrendingDown
+                        Trend.STABLE -> Icons.Filled.TrendingFlat
+                    },
+                    contentDescription = null,
+                    tint = when (metric.trend) {
+                        Trend.UP -> Color(0xFF4CAF50)
+                        Trend.DOWN -> Color(0xFFE53E3E)
+                        Trend.STABLE -> Color(0xFF9E9E9E)
+                    },
+                    modifier = Modifier.size(14.dp)
+                )
+            }
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "${healthInfo.value}${healthInfo.unit}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = healthInfo.color
-            )
-
-            Text(
-                text = healthInfo.title,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                textAlign = TextAlign.Center
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${metric.value}${metric.unit}",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = metric.color
+                )
+                Text(
+                    text = metric.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
 
 @Composable
-fun TimeBlockSection(
-    timeBlock: TimeBlock,
+fun AllTasksSection(
     tasks: List<Task>,
-    onTaskToggle: (Int) -> Unit
+    onTaskToggle: (Int) -> Unit,
+    onTaskEdit: (Task) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = RoundedCornerShape(18.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(20.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.padding(bottom = 16.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
+                Icon(
+                    imageVector = Icons.Filled.Assignment,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
                 )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
+                Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = timeBlock.displayName,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "All Tasks",
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-
                 Spacer(modifier = Modifier.weight(1f))
-
                 Text(
                     text = "${tasks.count { it.isCompleted }}/${tasks.size}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
 
-            tasks.forEach { task ->
-                TaskItem(
-                    task = task,
-                    onToggle = { onTaskToggle(task.id) }
-                )
+            // Group tasks by time block and display them
+            val tasksByTimeBlock = tasks.groupBy { it.timeBlock }
+            val orderedTimeBlocks = listOf(TimeBlock.MORNING, TimeBlock.AFTERNOON, TimeBlock.EVENING, TimeBlock.NIGHT)
+            
+            orderedTimeBlocks.forEach { timeBlock ->
+                val timeBlockTasks = tasksByTimeBlock[timeBlock] ?: emptyList()
+                if (timeBlockTasks.isNotEmpty()) {
+                    // Time block header
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = timeBlock.icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = timeBlock.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "(${timeBlockTasks.count { it.isCompleted }}/${timeBlockTasks.size})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                        )
+                    }
+                    
+                    // Tasks for this time block
+                    timeBlockTasks.forEachIndexed { index, task ->
+                        ModernTaskItem(
+                            task = task,
+                            onToggle = { onTaskToggle(task.id) },
+                            onEdit = { onTaskEdit(task) }
+                        )
+                        if (index < timeBlockTasks.size - 1) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
+                            )
+                        }
+                    }
+                    
+                    // Add spacing between time blocks
+                    if (timeBlock != orderedTimeBlocks.last { tasksByTimeBlock[it]?.isNotEmpty() == true }) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
 
-                if (task != tasks.last()) {
+@Composable
+fun CurrentTasksSection(
+    timeBlock: TimeBlock,
+    tasks: List<Task>,
+    onTaskToggle: (Int) -> Unit,
+    onTaskEdit: ((Task) -> Unit)? = null
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                Icon(
+                    imageVector = timeBlock.icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "${timeBlock.displayName} Tasks",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "${tasks.count { it.isCompleted }}/${tasks.size}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            tasks.forEachIndexed { index, task ->
+                ModernTaskItem(
+                    task = task,
+                    onToggle = { onTaskToggle(task.id) },
+                    onEdit = onTaskEdit?.let { { onTaskEdit(task) } }
+                )
+                if (index < tasks.size - 1) {
                     HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
                     )
                 }
             }
@@ -298,9 +828,10 @@ fun TimeBlockSection(
 }
 
 @Composable
-fun TaskItem(
+fun ModernTaskItem(
     task: Task,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onEdit: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -309,102 +840,1146 @@ fun TaskItem(
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Simple checkbox - left aligned
-        Checkbox(
-            checked = task.isCompleted,
-            onCheckedChange = { onToggle() },
-            colors = CheckboxDefaults.colors(
-                checkedColor = task.category.color,
-                uncheckedColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-            ),
-            modifier = Modifier.size(20.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .background(
+                    color = task.category.color.copy(alpha = 0.1f),
+                    shape = CircleShape
+                )
+                .border(
+                    width = 2.dp,
+                    color = if (task.isCompleted) task.category.color else task.category.color.copy(alpha = 0.3f),
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (task.isCompleted) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "Completed",
+                    tint = task.category.color,
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = task.icon,
+                    contentDescription = null,
+                    tint = task.category.color.copy(alpha = 0.7f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        // Task content
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = task.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (task.isCompleted) FontWeight.Normal else FontWeight.Medium,
-                color = if (task.isCompleted)
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                else MaterialTheme.colorScheme.onSurface,
-                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
-            )
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = if (task.isCompleted)
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    else MaterialTheme.colorScheme.onSurface,
+                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                if (task.priority == Priority.HIGH) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(
+                                color = Priority.HIGH.color,
+                                shape = CircleShape
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+            }
 
             if (task.description.isNotEmpty()) {
                 Text(
                     text = task.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 2.dp),
+                    modifier = Modifier.padding(top = 4.dp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = task.time,
+                style = MaterialTheme.typography.labelMedium,
+                color = task.category.color,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = task.category.displayName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+        }
+        
+        // Edit button
+        if (onEdit != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = { onEdit() },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = "Edit Task",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MedicalReportsSection(reports: List<MedicalReport>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Description,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Recent Reports",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                TextButton(
+                    onClick = { /* View All */ }
+                ) {
+                    Text("View All")
+                }
+            }
+
+            reports.forEachIndexed { index, report ->
+                MedicalReportItem(report = report)
+                if (index < reports.size - 1) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MedicalReportItem(report: MedicalReport) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { /* Open report */ }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = report.type.icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = report.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${report.type.displayName} • ${report.uploadDate}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+
+        StatusChip(status = report.status)
+    }
+}
+
+@Composable
+fun StatusChip(status: ReportStatus) {
+    val (backgroundColor, textColor, text) = when (status) {
+        ReportStatus.PROCESSING -> Triple(
+            Color(0xFFFFF3CD),
+            Color(0xFF856404),
+            "Processing"
+        )
+        ReportStatus.ANALYZED -> Triple(
+            Color(0xFFD1ECF1),
+            Color(0xFF0C5460),
+            "Analyzed"
+        )
+        ReportStatus.PENDING -> Triple(
+            Color(0xFFF8D7DA),
+            Color(0xFF721C24),
+            "Pending"
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .background(
+                color = backgroundColor,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
         Text(
-            text = task.time,
+            text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            modifier = Modifier.padding(start = 8.dp)
+            color = textColor,
+            fontWeight = FontWeight.Medium
         )
     }
 }
 
+@Composable
+fun RecoveryProgressSection(
+    completedToday: Int,
+    totalTasks: Int
+) {
+    val progress by animateFloatAsState(
+        targetValue = if (totalTasks > 0) completedToday.toFloat() / totalTasks else 0f,
+        animationSpec = tween(1000),
+        label = "progress"
+    )
 
-fun getDummyTasks(): List<Task> {
-    return listOf(
-        Task(1, "Morning Blood Sugar Check", "Test glucose levels immediately after waking up. Record reading in your log. Target: 80-130 mg/dL", TimeBlock.MORNING, "6:30 AM", TaskCategory.MONITORING, false, Icons.Default.MonitorHeart),
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Today's Progress",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            
+            Text(
+                text = "$completedToday/$totalTasks tasks",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
 
-        Task(2, "Morning Medicine", "Take diabetes medication with food as prescribed. Never skip doses. Set phone reminder if needed.", TimeBlock.MORNING, "7:00 AM", TaskCategory.MONITORING, false, Icons.Default.Medication),
+        Spacer(modifier = Modifier.height(8.dp))
 
-        Task(3, "Morning Walk", "30 minutes brisk walking outdoors. Carry glucose tablets and water bottle. Check blood sugar if feeling dizzy.", TimeBlock.MORNING, "7:30 AM", TaskCategory.EXERCISE, false, Icons.Default.DirectionsWalk),
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp)),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+        )
+    }
+}
 
-        Task(4, "Foot Inspection", "Check both feet for cuts, blisters, redness, or swelling. Use mirror for bottom view. Report any issues to doctor immediately.", TimeBlock.MORNING, "8:00 AM", TaskCategory.MONITORING, false, Icons.Default.Visibility),
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddMedicationDialog(
+    onDismiss: () -> Unit,
+    onAddMedication: (Medication) -> Unit
+) {
+    var medicationName by remember { mutableStateOf("") }
+    var instructions by remember { mutableStateOf("") }
+    var selectedFrequency by remember { mutableStateOf(FrequencyType.ONCE_DAILY) }
+    var medicationTimes by remember { mutableStateOf<List<MedicationTime>>(emptyList()) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    var currentTimeIndex by remember { mutableStateOf(-1) }
+    
+    val timePickerState = rememberTimePickerState(
+        initialHour = 8,
+        initialMinute = 0
+    )
 
-        Task(5, "Balanced Breakfast", "Include lean protein, whole grains, fiber. Portion: protein size of palm, carbs size of fist. Avoid refined sugars.", TimeBlock.MORNING, "8:30 AM", TaskCategory.DIET, false, Icons.Default.Restaurant),
+    // Initialize times based on frequency
+    LaunchedEffect(selectedFrequency) {
+        medicationTimes = when (selectedFrequency) {
+            FrequencyType.ONCE_DAILY -> listOf(
+                MedicationTime(8, 0, TimeBlock.MORNING, "08:00")
+            )
+            FrequencyType.TWICE_DAILY -> listOf(
+                MedicationTime(8, 0, TimeBlock.MORNING, "08:00"),
+                MedicationTime(20, 0, TimeBlock.EVENING, "20:00")
+            )
+            FrequencyType.THREE_TIMES -> listOf(
+                MedicationTime(8, 0, TimeBlock.MORNING, "08:00"),
+                MedicationTime(14, 0, TimeBlock.AFTERNOON, "14:00"),
+                MedicationTime(20, 0, TimeBlock.EVENING, "20:00")
+            )
+            FrequencyType.FOUR_TIMES -> listOf(
+                MedicationTime(8, 0, TimeBlock.MORNING, "08:00"),
+                MedicationTime(12, 0, TimeBlock.AFTERNOON, "12:00"),
+                MedicationTime(16, 0, TimeBlock.AFTERNOON, "16:00"),
+                MedicationTime(20, 0, TimeBlock.EVENING, "20:00")
+            )
+            FrequencyType.CUSTOM -> emptyList()
+        }
+    }
 
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Add Medication Reminder",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.height(400.dp)
+            ) {
+                // Medication Name
+                item {
+                    OutlinedTextField(
+                        value = medicationName,
+                        onValueChange = { medicationName = it },
+                        label = { Text("Medication Name *") },
+                        placeholder = { Text("e.g., Metformin, Lisinopril, Vitamin D") },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = {
+                            Icon(Icons.Filled.Medication, contentDescription = null)
+                        },
+                        isError = medicationName.isBlank()
+                    )
+                }
 
-        Task(6, "Pre-Lunch Blood Check", "Test glucose 2 hours after breakfast. Target: Less than 180 mg/dL. Log results in diary.", TimeBlock.AFTERNOON, "11:30 AM", TaskCategory.MONITORING, false, Icons.Default.Bloodtype),
+                // Instructions
+                item {
+                    OutlinedTextField(
+                        value = instructions,
+                        onValueChange = { instructions = it },
+                        label = { Text("Instructions (Optional)") },
+                        placeholder = { Text("e.g., Take with food, Before meals, After dinner") },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = {
+                            Icon(Icons.Filled.Info, contentDescription = null)
+                        },
+                        maxLines = 2
+                    )
+                }
 
-        Task(7, "Nutritious Lunch", "Low-carb meal with vegetables, lean protein. Avoid fried foods and sugary drinks. Eat at same time daily.", TimeBlock.AFTERNOON, "12:30 PM", TaskCategory.DIET, false, Icons.Default.LunchDining),
+                // Frequency Selection
+                item {
+                    Text(
+                        text = "How often?",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
 
-        Task(8, "Hydration Check", "Drink 16-20 oz water. Monitor urine color - should be light yellow. Avoid sugary beverages completely.", TimeBlock.AFTERNOON, "2:00 PM", TaskCategory.LIFESTYLE, false, Icons.Default.LocalDrink),
+                item {
+                    FrequencySelector(
+                        selectedFrequency = selectedFrequency,
+                        onFrequencySelected = { selectedFrequency = it }
+                    )
+                }
 
-        Task(9, "Stress Management", "10 minutes deep breathing or meditation. High stress affects blood sugar. Try guided meditation apps.", TimeBlock.AFTERNOON, "3:30 PM", TaskCategory.LIFESTYLE, false, Icons.Default.SelfImprovement),
+                // Time Schedule
+                if (medicationTimes.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Reminder Times",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
 
-        Task(10, "Pre-Exercise Blood Check", "Test glucose before activity. If below 100 mg/dL, eat 15g carbs. If over 300 mg/dL, avoid exercise.", TimeBlock.EVENING, "5:30 PM", TaskCategory.MONITORING, false, Icons.Default.FitnessCenter),
+                    itemsIndexed(medicationTimes) { index, time ->
+                        TimeScheduleItem(
+                            time = time,
+                            onTimeClick = { 
+                                currentTimeIndex = index
+                                showTimePicker = true
+                            }
+                        )
+                    }
+                }
 
-        Task(11, "Evening Exercise", "20 minutes strength training or yoga. Monitor for dizziness. Keep glucose tablets nearby always.", TimeBlock.EVENING, "6:00 PM", TaskCategory.EXERCISE, false, Icons.Default.SelfImprovement),
+                // Custom time option
+                if (selectedFrequency == FrequencyType.CUSTOM) {
+                    item {
+                        Button(
+                            onClick = { 
+                                currentTimeIndex = medicationTimes.size
+                                showTimePicker = true
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add Time")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (medicationName.isNotBlank() && medicationTimes.isNotEmpty()) {
+                        val medication = Medication(
+                            id = System.currentTimeMillis().toInt(),
+                            name = medicationName,
+                            instructions = instructions,
+                            times = medicationTimes,
+                            startDate = java.time.LocalDate.now().toString(),
+                            endDate = null,
+                            isActive = true
+                        )
+                        onAddMedication(medication)
+                    }
+                },
+                enabled = medicationName.isNotBlank() && medicationTimes.isNotEmpty()
+            ) {
+                Text("Set Reminders")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 
-        Task(12, "Healthy Dinner", "Small portions, high fiber vegetables, lean protein. Stop eating 3 hours before bed. No dessert or alcohol.", TimeBlock.EVENING, "7:00 PM", TaskCategory.DIET, false, Icons.Default.DinnerDining),
+    // Time Picker Dialog
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val hour = timePickerState.hour
+                        val minute = timePickerState.minute
+                        val timeBlock = getTimeBlockFromHour(hour)
+                        val displayTime = String.format("%02d:%02d", hour, minute)
+                        
+                        val newTime = MedicationTime(hour, minute, timeBlock, displayTime)
+                        
+                        medicationTimes = if (currentTimeIndex < medicationTimes.size) {
+                            // Update existing time
+                            medicationTimes.toMutableList().apply {
+                                set(currentTimeIndex, newTime)
+                            }
+                        } else {
+                            // Add new time
+                            medicationTimes + newTime
+                        }
+                        
+                        showTimePicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+            title = {
+                Text("Select Time")
+            },
+            text = {
+                TimePicker(state = timePickerState)
+            }
+        )
+    }
+}
 
-        Task(13, "Evening Medicine", "Take prescribed evening medications with dinner. Check blood pressure if monitoring required.", TimeBlock.EVENING, "7:30 PM", TaskCategory.MONITORING, false, Icons.Default.Medication),
+@Composable
+fun FrequencySelector(
+    selectedFrequency: FrequencyType,
+    onFrequencySelected: (FrequencyType) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(FrequencyType.values()) { frequency ->
+            FilterChip(
+                selected = selectedFrequency == frequency,
+                onClick = { onFrequencySelected(frequency) },
+                label = {
+                    Text(
+                        text = frequency.displayName,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                leadingIcon = if (selectedFrequency == frequency) {
+                    {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                } else null
+            )
+        }
+    }
+}
 
-        Task(14, "Bedtime Blood Sugar", "Final glucose check of day. Target: 100-140 mg/dL. Eat small snack if below 100 mg/dL.", TimeBlock.NIGHT, "9:00 PM", TaskCategory.MONITORING, false, Icons.Default.MonitorHeart),
+@Composable
+fun TimeScheduleItem(
+    time: MedicationTime,
+    onTimeClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onTimeClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = time.timeBlock.icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = time.get12HourFormat(),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = time.timeBlock.displayName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            }
+            
+            Icon(
+                imageVector = Icons.Filled.Edit,
+                contentDescription = "Edit time",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
 
-        Task(15, "Sleep Preparation", "No screens 1 hour before bed. Keep glucose tablets bedside. Charge glucose meter. Set consistent sleep schedule.", TimeBlock.NIGHT, "9:30 PM", TaskCategory.LIFESTYLE, false, Icons.Default.Bedtime),
+fun getTimeBlockFromHour(hour: Int): TimeBlock {
+    return when (hour) {
+        in 6..11 -> TimeBlock.MORNING
+        in 12..16 -> TimeBlock.AFTERNOON
+        in 17..20 -> TimeBlock.EVENING
+        else -> TimeBlock.NIGHT
+    }
+}
 
-        Task(16, "Quality Sleep", "7-8 hours uninterrupted sleep. Poor sleep affects blood sugar control. Use blackout curtains and cool room temperature.", TimeBlock.NIGHT, "10:00 PM", TaskCategory.LIFESTYLE, false, Icons.Default.Hotel),
+fun getTimeBlockFromTime(time: String): TimeBlock {
+    val hour = time.split(":")[0].toInt()
+    return when (hour) {
+        in 6..11 -> TimeBlock.MORNING
+        in 12..16 -> TimeBlock.AFTERNOON
+        in 17..20 -> TimeBlock.EVENING
+        else -> TimeBlock.NIGHT
+    }
+}
 
-        Task(17, "Weekly Weight Check", "Weigh yourself same day/time weekly. Record in log. Sudden weight changes may indicate fluid retention.", TimeBlock.MORNING, "Weekly", TaskCategory.MONITORING, false, Icons.Default.Scale),
+@Composable
+fun ProcessingIndicator() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 3.dp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = "Analyzing Medical Report...",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Generating personalized health plan",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+        }
+    }
+}
 
-        Task(18, "Medicine Refill Check", "Check medication supplies weekly. Refill when 7 days remaining. Never run out of diabetes medications.", TimeBlock.EVENING, "Weekly", TaskCategory.MONITORING, false, Icons.Default.Medication)
+// PDF Text Extraction
+suspend fun extractTextFromPDF(context: Context, pdfUri: Uri): String {
+    return try {
+        val inputStream: InputStream = context.contentResolver.openInputStream(pdfUri)
+            ?: throw Exception("Could not open PDF file")
+        
+        val pdfReader = PdfReader(inputStream)
+        val pdfDocument = PdfDocument(pdfReader)
+        val text = StringBuilder()
+        
+        for (i in 1..pdfDocument.numberOfPages) {
+            val page = pdfDocument.getPage(i)
+            val pageText = PdfTextExtractor.getTextFromPage(page)
+            text.append(pageText).append("\n")
+        }
+        
+        pdfDocument.close()
+        pdfReader.close()
+        inputStream.close()
+        
+        text.toString().trim()
+    } catch (e: Exception) {
+        throw Exception("Failed to extract text from PDF: ${e.message}")
+    }
+}
+
+@Composable
+fun EmptyTasksState(onUploadReport: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Icon(
+                Icons.Default.Assignment,
+                contentDescription = "No Tasks",
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            )
+            
+            Text(
+                text = "No Tasks Yet",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            )
+            
+            Text(
+                text = "Upload your medical report to generate personalized daily health tasks",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                ),
+                textAlign = TextAlign.Center
+            )
+            
+            FilledTonalButton(
+                onClick = onUploadReport,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Icon(
+                    Icons.Default.CloudUpload,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Upload Medical Report")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddTaskDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (Task) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(TaskCategory.GENERAL) }
+    var selectedPriority by remember { mutableStateOf(Priority.MEDIUM) }
+    var selectedTimeBlock by remember { mutableStateOf(TimeBlock.MORNING) }
+    var expandedCategory by remember { mutableStateOf(false) }
+    var expandedPriority by remember { mutableStateOf(false) }
+    var expandedTimeBlock by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Add New Task",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Task Title") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+                
+                item {
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Description") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3
+                    )
+                }
+                
+                item {
+                    ExposedDropdownMenuBox(
+                        expanded = expandedCategory,
+                        onExpandedChange = { expandedCategory = it }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedCategory.displayName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Category") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedCategory) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        
+                        ExposedDropdownMenu(
+                            expanded = expandedCategory,
+                            onDismissRequest = { expandedCategory = false }
+                        ) {
+                            TaskCategory.values().forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.displayName) },
+                                    onClick = {
+                                        selectedCategory = category
+                                        expandedCategory = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                item {
+                    ExposedDropdownMenuBox(
+                        expanded = expandedPriority,
+                        onExpandedChange = { expandedPriority = it }
+                    ) {
+                        OutlinedTextField(
+                            value = when(selectedPriority) {
+                                Priority.HIGH -> "High"
+                                Priority.MEDIUM -> "Medium"
+                                Priority.LOW -> "Low"
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Priority") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedPriority) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        
+                        ExposedDropdownMenu(
+                            expanded = expandedPriority,
+                            onDismissRequest = { expandedPriority = false }
+                        ) {
+                            Priority.values().forEach { priority ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(when(priority) {
+                                            Priority.HIGH -> "High"
+                                            Priority.MEDIUM -> "Medium"
+                                            Priority.LOW -> "Low"
+                                        })
+                                    },
+                                    onClick = {
+                                        selectedPriority = priority
+                                        expandedPriority = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                item {
+                    ExposedDropdownMenuBox(
+                        expanded = expandedTimeBlock,
+                        onExpandedChange = { expandedTimeBlock = it }
+                    ) {
+                        OutlinedTextField(
+                            value = when(selectedTimeBlock) {
+                                TimeBlock.MORNING -> "Morning"
+                                TimeBlock.AFTERNOON -> "Afternoon"
+                                TimeBlock.EVENING -> "Evening"
+                                TimeBlock.NIGHT -> "Night"
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Time Block") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedTimeBlock) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        
+                        ExposedDropdownMenu(
+                            expanded = expandedTimeBlock,
+                            onDismissRequest = { expandedTimeBlock = false }
+                        ) {
+                            TimeBlock.values().forEach { timeBlock ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(when(timeBlock) {
+                                            TimeBlock.MORNING -> "Morning"
+                                            TimeBlock.AFTERNOON -> "Afternoon"
+                                            TimeBlock.EVENING -> "Evening"
+                                            TimeBlock.NIGHT -> "Night"
+                                        })
+                                    },
+                                    onClick = {
+                                        selectedTimeBlock = timeBlock
+                                        expandedTimeBlock = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        val newTask = Task(
+                            id = System.currentTimeMillis().toInt(),
+                            title = title.trim(),
+                            description = description.trim(),
+                            timeBlock = selectedTimeBlock,
+                            time = "9:00 AM", // Default time, can be made configurable
+                            category = selectedCategory,
+                            isCompleted = false,
+                            icon = when(selectedCategory) {
+                                TaskCategory.MEDICATION -> Icons.Filled.Medication
+                                TaskCategory.EXERCISE -> Icons.Filled.FitnessCenter
+                                TaskCategory.DIET -> Icons.Filled.Restaurant
+                                TaskCategory.MONITORING -> Icons.Filled.Monitor
+                                TaskCategory.LIFESTYLE -> Icons.Filled.SelfImprovement
+                                TaskCategory.GENERAL -> Icons.Filled.Task
+                            },
+                            priority = Priority.MEDIUM
+                        )
+                        onConfirm(newTask)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Add Task")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditTaskDialog(
+    task: Task,
+    onDismiss: () -> Unit,
+    onConfirm: (Task) -> Unit
+) {
+    var title by remember { mutableStateOf(task.title) }
+    var description by remember { mutableStateOf(task.description) }
+    var selectedCategory by remember { mutableStateOf(task.category) }
+    var selectedPriority by remember { mutableStateOf(task.priority) }
+    var selectedTimeBlock by remember { mutableStateOf(task.timeBlock) }
+    var expandedCategory by remember { mutableStateOf(false) }
+    var expandedPriority by remember { mutableStateOf(false) }
+    var expandedTimeBlock by remember { mutableStateOf(false) }
 
-fun getDummyHealthInfo(): List<HealthInfo> {
-    return listOf(
-        HealthInfo("Blood Sugar", "120", "mg/dL", HealthStatus.GOOD, Icons.Default.Bloodtype, Color(0xFF4CAF50)),
-        HealthInfo("Blood Pressure", "125/80", "mmHg", HealthStatus.WARNING, Icons.Default.MonitorHeart, Color(0xFFFF9800)),
-        HealthInfo("Weight", "72", "kg", HealthStatus.GOOD, Icons.Default.FitnessCenter, Color(0xFF2196F3)),
-        HealthInfo("Heart Rate", "78", "bpm", HealthStatus.GOOD, Icons.Default.Favorite, Color(0xFFE91E63))
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Edit Task",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Task Title") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+                
+                item {
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Description") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3
+                    )
+                }
+                
+                item {
+                    ExposedDropdownMenuBox(
+                        expanded = expandedCategory,
+                        onExpandedChange = { expandedCategory = it }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedCategory.displayName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Category") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedCategory) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        
+                        ExposedDropdownMenu(
+                            expanded = expandedCategory,
+                            onDismissRequest = { expandedCategory = false }
+                        ) {
+                            TaskCategory.values().forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.displayName) },
+                                    onClick = {
+                                        selectedCategory = category
+                                        expandedCategory = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                item {
+                    ExposedDropdownMenuBox(
+                        expanded = expandedPriority,
+                        onExpandedChange = { expandedPriority = it }
+                    ) {
+                        OutlinedTextField(
+                            value = when(selectedPriority) {
+                                Priority.HIGH -> "High"
+                                Priority.MEDIUM -> "Medium"
+                                Priority.LOW -> "Low"
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Priority") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedPriority) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        
+                        ExposedDropdownMenu(
+                            expanded = expandedPriority,
+                            onDismissRequest = { expandedPriority = false }
+                        ) {
+                            Priority.values().forEach { priority ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(when(priority) {
+                                            Priority.HIGH -> "High"
+                                            Priority.MEDIUM -> "Medium"
+                                            Priority.LOW -> "Low"
+                                        })
+                                    },
+                                    onClick = {
+                                        selectedPriority = priority
+                                        expandedPriority = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                item {
+                    ExposedDropdownMenuBox(
+                        expanded = expandedTimeBlock,
+                        onExpandedChange = { expandedTimeBlock = it }
+                    ) {
+                        OutlinedTextField(
+                            value = when(selectedTimeBlock) {
+                                TimeBlock.MORNING -> "Morning"
+                                TimeBlock.AFTERNOON -> "Afternoon"
+                                TimeBlock.EVENING -> "Evening"
+                                TimeBlock.NIGHT -> "Night"
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Time Block") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedTimeBlock) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        
+                        ExposedDropdownMenu(
+                            expanded = expandedTimeBlock,
+                            onDismissRequest = { expandedTimeBlock = false }
+                        ) {
+                            TimeBlock.values().forEach { timeBlock ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(when(timeBlock) {
+                                            TimeBlock.MORNING -> "Morning"
+                                            TimeBlock.AFTERNOON -> "Afternoon"
+                                            TimeBlock.EVENING -> "Evening"
+                                            TimeBlock.NIGHT -> "Night"
+                                        })
+                                    },
+                                    onClick = {
+                                        selectedTimeBlock = timeBlock
+                                        expandedTimeBlock = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        val updatedTask = task.copy(
+                            title = title.trim(),
+                            description = description.trim(),
+                            category = selectedCategory,
+                            priority = selectedPriority,
+                            timeBlock = selectedTimeBlock
+                        )
+                        onConfirm(updatedTask)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Save Changes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
     )
 }
+

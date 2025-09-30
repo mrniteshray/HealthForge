@@ -52,17 +52,17 @@ class NetworkModule {
     ): OkHttpClient =
         OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
-            .addInterceptor { chain ->
-                val token = runBlocking {
-                    dataStore.getStringOnce(PreferenceKey.AUTH_TOKEN)
-                }
-
-                val newRequest = chain.request().newBuilder()
-                    .addHeader("Authorization", "Bearer $token")
-                    .build()
-
-                chain.proceed(newRequest)
-            }
+//            .addInterceptor { chain ->
+//                val token = runBlocking {
+//                    dataStore.getStringOnce(PreferenceKey.AUTH_TOKEN)
+//                }
+//
+//                val newRequest = chain.request().newBuilder()
+//                    .addHeader("Authorization", "Bearer $token")
+//                    .build()
+//
+//                chain.proceed(newRequest)
+//            }
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
