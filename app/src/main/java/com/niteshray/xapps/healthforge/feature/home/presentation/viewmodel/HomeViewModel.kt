@@ -19,14 +19,23 @@ import com.niteshray.xapps.healthforge.feature.home.presentation.compose.TimeBlo
 import com.niteshray.xapps.healthforge.feature.home.presentation.compose.Priority
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val cerebrasApi: CerebrasApi
+    private val cerebrasApi: CerebrasApi,
+    private val firebaseAuth : FirebaseAuth
 ) : ViewModel() {
     var errorMessage = mutableStateOf<String?>(null)
     var generatedTasks = mutableStateOf<List<Task>>(emptyList())
     var isLoading = mutableStateOf(false)
+
+    //To be Set Later on
+//    private val _userName = MutableStateFlow<String>("")
+//    val userName = _userName.asStateFlow()
+
 
     fun generateTasksFromReport(medicalReport: String) {
         viewModelScope.launch {
@@ -49,7 +58,7 @@ class HomeViewModel @Inject constructor(
                     }
                     
                     Guidelines:
-                    - Create 8-12 tasks covering medication, exercise, diet, monitoring, lifestyle
+                    - Create 10-12 tasks covering medication, exercise, diet, monitoring, lifestyle
                     - Use specific times (8:00 AM, 1:30 PM, etc.)
                     - HIGH priority for medications/critical monitoring
                     - MEDIUM for diet/regular monitoring
