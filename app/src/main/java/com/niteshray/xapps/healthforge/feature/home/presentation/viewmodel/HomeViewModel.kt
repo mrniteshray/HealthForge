@@ -106,6 +106,12 @@ class HomeViewModel @Inject constructor(
         }
     }
     
+    fun deleteTask(taskId: Int) {
+        generatedTasks.value = generatedTasks.value.filter { task ->
+            task.id != taskId
+        }
+    }
+    
     private fun parseJsonToTasks(jsonString: String): List<Task> {
         return try {
             val gson = Gson()

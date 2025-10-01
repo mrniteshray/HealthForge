@@ -204,6 +204,9 @@ fun HealthcareDashboard(
                     onTaskEdit = { task ->
                         taskToEdit = task
                         showEditTaskDialog = true
+                    },
+                    onTaskDelete = { taskId ->
+                        viewModel.deleteTask(taskId)
                     }
                 )
             }
@@ -533,7 +536,8 @@ fun HealthMetricCard(metric: HealthMetric) {
 fun AllTasksSection(
     tasks: List<Task>,
     onTaskToggle: (Int) -> Unit,
-    onTaskEdit: (Task) -> Unit
+    onTaskEdit: (Task) -> Unit,
+    onTaskDelete: (Int) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -612,7 +616,8 @@ fun AllTasksSection(
                         ModernTaskItem(
                             task = task,
                             onToggle = { onTaskToggle(task.id) },
-                            onEdit = { onTaskEdit(task) }
+                            onEdit = { onTaskEdit(task) },
+                            onDelete = { onTaskDelete(task.id) }
                         )
                         if (index < timeBlockTasks.size - 1) {
                             HorizontalDivider(
@@ -641,7 +646,8 @@ fun CurrentTasksSection(
     timeBlock: TimeBlock,
     tasks: List<Task>,
     onTaskToggle: (Int) -> Unit,
-    onTaskEdit: ((Task) -> Unit)? = null
+    onTaskEdit: ((Task) -> Unit)? = null,
+    onTaskDelete: ((Int) -> Unit)? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -686,7 +692,8 @@ fun CurrentTasksSection(
                 ModernTaskItem(
                     task = task,
                     onToggle = { onTaskToggle(task.id) },
-                    onEdit = onTaskEdit?.let { { onTaskEdit(task) } }
+                    onEdit = onTaskEdit?.let { { onTaskEdit(task) } },
+                    onDelete = { onTaskDelete?.invoke(task.id) }
                 )
                 if (index < tasks.size - 1) {
                     HorizontalDivider(
@@ -703,71 +710,101 @@ fun CurrentTasksSection(
 fun ModernTaskItem(
     task: Task,
     onToggle: () -> Unit,
-    onEdit: (() -> Unit)? = null
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onToggle() }
-            .padding(vertical = 8.dp),
+            .padding(horizontal = 4.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .background(
-                    color = task.category.color.copy(alpha = 0.1f),
-                    shape = CircleShape
-                )
-                .border(
-                    width = 2.dp,
-                    color = if (task.isCompleted) task.category.color else task.category.color.copy(alpha = 0.3f),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (task.isCompleted) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = "Completed",
-                    tint = task.category.color,
-                    modifier = Modifier.size(20.dp)
-                )
-            } else {
+        // Task icon and checkbox
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Task icon
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        color = task.category.color.copy(alpha = 0.1f),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
                     imageVector = task.icon,
                     contentDescription = null,
-                    tint = task.category.color.copy(alpha = 0.7f),
+                    tint = task.category.color,
                     modifier = Modifier.size(18.dp)
                 )
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            // Checkbox indicator
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .background(
+                        color = if (task.isCompleted) {
+                            task.category.color
+                        } else {
+                            Color.Transparent
+                        },
+                        shape = CircleShape
+                    )
+                    .border(
+                        width = 2.dp,
+                        color = task.category.color,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (task.isCompleted) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Completed",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.width(16.dp))
 
+        // Task content
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = task.title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
-                    color = if (task.isCompleted)
+                    color = if (task.isCompleted) {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    else MaterialTheme.colorScheme.onSurface,
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                     textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
                     modifier = Modifier.weight(1f)
                 )
                 
-                if (task.priority == Priority.HIGH) {
+                // Priority dot for high priority tasks
+                if (task.priority == Priority.HIGH && !task.isCompleted) {
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
+                            .size(8.dp)
                             .background(
                                 color = Priority.HIGH.color,
                                 shape = CircleShape
                             )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
                 }
             }
 
@@ -775,43 +812,138 @@ fun ModernTaskItem(
                 Text(
                     text = task.description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 2.dp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-        }
-
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = task.time,
-                style = MaterialTheme.typography.labelMedium,
-                color = task.category.color,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = task.category.displayName,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-            )
-        }
-        
-        // Edit button
-        if (onEdit != null) {
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
-                onClick = { onEdit() },
-                modifier = Modifier.size(24.dp)
+            
+            // Compact time and category
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Edit,
-                    contentDescription = "Edit Task",
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.size(16.dp)
+                Text(
+                    text = task.time,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = task.category.color,
+                    fontWeight = FontWeight.Medium
+                )
+                
+                Text(
+                    text = " • ${task.category.displayName}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
         }
+
+        // Menu button for actions
+        if (onEdit != null || onDelete != null) {
+            Box {
+                IconButton(
+                    onClick = { showMenu = !showMenu },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "Task Options",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    if (onEdit != null) {
+                        DropdownMenuItem(
+                            text = { 
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Edit,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Edit")
+                                }
+                            },
+                            onClick = {
+                                onEdit()
+                                showMenu = false
+                            }
+                        )
+                    }
+                    
+                    if (onDelete != null) {
+                        DropdownMenuItem(
+                            text = { 
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Delete",
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            },
+                            onClick = {
+                                showDeleteDialog = true
+                                showMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    // Clean delete confirmation dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text("Delete Task?")
+            },
+            text = {
+                Text("\"${task.title}\" will be permanently deleted.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete?.invoke()
+                        showDeleteDialog = false
+                    }
+                ) {
+                    Text(
+                        "Delete",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
