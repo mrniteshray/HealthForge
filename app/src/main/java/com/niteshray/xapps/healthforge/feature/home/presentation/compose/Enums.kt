@@ -14,17 +14,7 @@ import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 
-data class Task(
-    val id: Int,
-    val title: String,
-    val description: String,
-    val timeBlock: TimeBlock,
-    val time: String,
-    val category: TaskCategory,
-    val isCompleted: Boolean = false,
-    val icon: ImageVector,
-    val priority: Priority = Priority.MEDIUM
-)
+
 
 data class HealthMetric(
     val title: String,

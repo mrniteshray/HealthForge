@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.runtime.*
@@ -49,37 +50,11 @@ import java.io.InputStream
 import androidx.compose.runtime.LaunchedEffect
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-
-/*
- * MEDICATION REMINDER SYSTEM - ALARMMANAGER INTEGRATION GUIDE
- * 
- * To schedule notifications using AlarmManager:
- * 
- * 1. For each medication.times, call:
- *    val timeInMillis = medicationTime.toMillis()
- *    
- * 2. Schedule alarm:
- *    alarmManager.setRepeating(
- *        AlarmManager.RTC_WAKEUP,
- *        timeInMillis,
- *        AlarmManager.INTERVAL_DAY,
- *        pendingIntent
- *    )
- * 
- * 3. Create unique requestCode for each reminder:
- *    val requestCode = "${medication.id}_${medicationTime.hour}_${medicationTime.minute}".hashCode()
- * 
- * 4. Pass medication data to notification:
- *    intent.putExtra("medication_name", medication.name)
- *    intent.putExtra("instructions", medication.instructions)
- */
 
 @Composable
 fun HealthcareDashboard(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    var tasks by remember { mutableStateOf<List<Task>>(emptyList()) }
     var medications by remember { mutableStateOf<List<Medication>>(emptyList()) }
     var showAddMedicationDialog by remember { mutableStateOf(false) }
     var showAddTaskDialog by remember { mutableStateOf(false) }
@@ -89,8 +64,9 @@ fun HealthcareDashboard(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     
-    // ViewModel states
-    val generatedTasks by viewModel.generatedTasks
+    // Use StateFlow from ViewModel for reactive task updates
+    val tasks by viewModel.tasks.collectAsState()
+    val isTasksLoading by viewModel.isTasksLoading.collectAsState()
     val isProcessingReport by viewModel.isLoading
     val errorMessage by viewModel.errorMessage
 //    val userName by viewModel.userName.collectAsStateWithLifecycle()
@@ -111,12 +87,7 @@ fun HealthcareDashboard(
         }
     }
     
-    // Use generated tasks from ViewModel
-    LaunchedEffect(generatedTasks) {
-        if (generatedTasks.isNotEmpty()) {
-            tasks = generatedTasks
-        }
-    }
+
 
     val greeting = when (currentHour) {
         in 5..11 -> "Good Morning"
@@ -138,6 +109,12 @@ fun HealthcareDashboard(
     val completedTasks = currentTasks.count { it.isCompleted }
     val totalCurrentTasks = currentTasks.size
     val adherencePercentage = if (totalCurrentTasks > 0) (completedTasks * 100) / totalCurrentTasks else 0
+
+    // Show loading screen when tasks are loading initially
+    if (isTasksLoading && tasks.isEmpty()) {
+        CircularProgressIndicator()
+        return
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -195,10 +172,9 @@ fun HealthcareDashboard(
                 AllTasksSection(
                     tasks = currentTasks,
                     onTaskToggle = { taskId ->
-                        tasks = tasks.map { task ->
-                            if (task.id == taskId) {
-                                task.copy(isCompleted = !task.isCompleted)
-                            } else task
+                        val task = tasks.find { it.id == taskId }
+                        task?.let {
+                            viewModel.toggleTaskCompletion(taskId, !it.isCompleted)
                         }
                     },
                     onTaskEdit = { task ->
@@ -226,9 +202,10 @@ fun HealthcareDashboard(
             onAddMedication = { medication ->
                 medications = medications + medication
 
-                val newTasks = medication.times.mapIndexed { index, medicationTime ->
-                    Task(
-                        id = (tasks.maxOfOrNull { it.id } ?: 0) + index + 1,
+                // Add each medication time as a separate task to the database
+                medication.times.forEach { medicationTime ->
+                    val task = Task(
+                        id = 0, // Let Room auto-generate the ID
                         title = "Take ${medication.name}",
                         description = if (medication.instructions.isNotEmpty()) medication.instructions else "Medication reminder",
                         timeBlock = medicationTime.timeBlock,
@@ -238,8 +215,8 @@ fun HealthcareDashboard(
                         icon = Icons.Filled.Medication,
                         priority = Priority.HIGH
                     )
+                    viewModel.addTask(task)
                 }
-                tasks = tasks + newTasks
                 showAddMedicationDialog = false
             }
         )
@@ -2048,4 +2025,3 @@ fun EditTaskDialog(
         )
     }
 }
-

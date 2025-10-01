@@ -13,24 +13,66 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
+import com.niteshray.xapps.healthforge.feature.home.data.models.Task as DataTask
+import com.niteshray.xapps.healthforge.feature.home.domain.TaskRepository
 import com.niteshray.xapps.healthforge.feature.home.presentation.compose.Task
 import com.niteshray.xapps.healthforge.feature.home.presentation.compose.TaskCategory
 import com.niteshray.xapps.healthforge.feature.home.presentation.compose.TimeBlock
 import com.niteshray.xapps.healthforge.feature.home.presentation.compose.Priority
+import com.niteshray.xapps.healthforge.feature.home.presentation.compose.toPresentationTask
+import com.niteshray.xapps.healthforge.feature.home.presentation.compose.toDataTask
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val cerebrasApi: CerebrasApi,
-    private val firebaseAuth : FirebaseAuth
+    private val firebaseAuth: FirebaseAuth,
+    private val taskRepository: TaskRepository
 ) : ViewModel() {
     var errorMessage = mutableStateOf<String?>(null)
-    var generatedTasks = mutableStateOf<List<Task>>(emptyList())
     var isLoading = mutableStateOf(false)
+
+    // Tasks loading state
+    private val _isTasksLoading = MutableStateFlow(true)
+    val isTasksLoading: StateFlow<Boolean> = _isTasksLoading.asStateFlow()
+
+    // Tasks from database
+    private val _tasks = MutableStateFlow<List<Task>>(emptyList())
+    val tasks: StateFlow<List<Task>> = _tasks.asStateFlow()
+
+    // For backward compatibility with existing UI code
+    var generatedTasks = mutableStateOf<List<Task>>(emptyList())
+
+    init {
+        // Load tasks from database on initialization
+        loadTasks()
+    }
+
+    private fun loadTasks() {
+        viewModelScope.launch {
+            _isTasksLoading.value = true
+            taskRepository.getAllTasks()
+                .catch { e ->
+                    errorMessage.value = "Failed to load tasks: ${e.message}"
+                    _isTasksLoading.value = false
+                }
+                .map { dataTaskList ->
+                    dataTaskList.map { it.toPresentationTask() }
+                }
+                .collect { taskList ->
+                    _tasks.value = taskList
+                    generatedTasks.value = taskList // For backward compatibility
+                    _isTasksLoading.value = false
+                }
+        }
+    }
 
     //To be Set Later on
 //    private val _userName = MutableStateFlow<String>("")
@@ -81,8 +123,16 @@ class HomeViewModel @Inject constructor(
                 val jsonMatch = jsonRegex.find(generatedContent)
                 val jsonString = jsonMatch?.value ?: throw Exception("No valid JSON found")
 
-                // Parse and convert to Task objects
-                generatedTasks.value = parseJsonToTasks(jsonString)
+                // Parse and convert to Task objects then save to database
+                val parsedTasks = parseJsonToTasks(jsonString)
+                viewModelScope.launch {
+                    try {
+                        taskRepository.insertTasks(parsedTasks)
+                        // Tasks will be automatically updated through the flow in loadTasks()
+                    } catch (e: Exception) {
+                        errorMessage.value = "Failed to save tasks: ${e.message}"
+                    }
+                }
             } catch (e: Exception) {
                 errorMessage.value = "Failed: ${e.message}"
             } finally {
@@ -92,27 +142,68 @@ class HomeViewModel @Inject constructor(
     }
     
     fun resetTasks() {
-        generatedTasks.value = emptyList()
-        errorMessage.value = null
+        viewModelScope.launch {
+            try {
+                taskRepository.deleteAllTasks()
+                errorMessage.value = null
+            } catch (e: Exception) {
+                errorMessage.value = "Failed to reset tasks: ${e.message}"
+            }
+        }
     }
     
     fun addTask(task: Task) {
-        generatedTasks.value = generatedTasks.value + task
+        viewModelScope.launch {
+            try {
+                taskRepository.insertTask(task.toDataTask())
+            } catch (e: Exception) {
+                errorMessage.value = "Failed to add task: ${e.message}"
+            }
+        }
     }
     
     fun updateTask(updatedTask: Task) {
-        generatedTasks.value = generatedTasks.value.map { task ->
-            if (task.id == updatedTask.id) updatedTask else task
+        viewModelScope.launch {
+            try {
+                taskRepository.updateTask(updatedTask.toDataTask())
+            } catch (e: Exception) {
+                errorMessage.value = "Failed to update task: ${e.message}"
+            }
         }
     }
     
     fun deleteTask(taskId: Int) {
-        generatedTasks.value = generatedTasks.value.filter { task ->
-            task.id != taskId
+        viewModelScope.launch {
+            try {
+                taskRepository.deleteTaskById(taskId)
+            } catch (e: Exception) {
+                errorMessage.value = "Failed to delete task: ${e.message}"
+            }
         }
     }
     
-    private fun parseJsonToTasks(jsonString: String): List<Task> {
+    fun toggleTaskCompletion(taskId: Int, isCompleted: Boolean) {
+        viewModelScope.launch {
+            try {
+                taskRepository.updateTaskCompletionStatus(taskId, isCompleted)
+            } catch (e: Exception) {
+                errorMessage.value = "Failed to update task status: ${e.message}"
+            }
+        }
+    }
+    
+    // Additional repository methods
+    fun getTasksByCategory(category: TaskCategory) = taskRepository.getTasksByCategory(category)
+    
+    fun getTasksByTimeBlock(timeBlock: TimeBlock) = taskRepository.getTasksByTimeBlock(timeBlock)
+    
+    fun getTasksByPriority(priority: Priority) = taskRepository.getTasksByPriority(priority)
+    
+    fun getCompletedTasks() = taskRepository.getTasksByCompletionStatus(true)
+    
+    fun getPendingTasks() = taskRepository.getTasksByCompletionStatus(false)
+    
+    private fun parseJsonToTasks(jsonString: String): List<DataTask> {
         return try {
             val gson = Gson()
             val jsonObject = gson.fromJson(jsonString, JsonObject::class.java)
@@ -130,15 +221,14 @@ class HomeViewModel @Inject constructor(
                 val category = try { TaskCategory.valueOf(categoryStr) } catch (e: Exception) { TaskCategory.LIFESTYLE }
                 val priority = try { Priority.valueOf(priorityStr) } catch (e: Exception) { Priority.MEDIUM }
                 
-                Task(
-                    id = index + 1,
+                DataTask(
+                    id = 0, // Let Room auto-generate the ID
                     title = title,
                     description = description,
                     timeBlock = timeBlock,
                     time = time,
                     category = category,
                     isCompleted = false,
-                    icon = getCategoryIcon(category),
                     priority = priority
                 )
             }
@@ -165,14 +255,5 @@ class HomeViewModel @Inject constructor(
             in 17..20 -> TimeBlock.EVENING
             else -> TimeBlock.NIGHT
         }
-    }
-    
-    private fun getCategoryIcon(category: TaskCategory) = when (category) {
-        TaskCategory.MEDICATION -> Icons.Filled.Medication
-        TaskCategory.EXERCISE -> Icons.Filled.DirectionsRun
-        TaskCategory.DIET -> Icons.Filled.Restaurant
-        TaskCategory.MONITORING -> Icons.Filled.MonitorHeart
-        TaskCategory.LIFESTYLE -> Icons.Filled.Spa
-        TaskCategory.GENERAL -> TODO()
     }
 }

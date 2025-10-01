@@ -83,4 +83,10 @@ dependencies {
     
     // PDF processing
     implementation("com.itextpdf:itext7-core:7.2.5")
+
+    val roomVersion = "2.8.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+
 }
