@@ -45,10 +45,8 @@ fun HomeScreen(
                 HealthcareDashboard()
             }
             composable(BottomNavItem.Appointments.route) {
-//                AppointmentsScreen()
             }
             composable(BottomNavItem.Profile.route) {
-//                ProfileScreen()
             }
         }
     }

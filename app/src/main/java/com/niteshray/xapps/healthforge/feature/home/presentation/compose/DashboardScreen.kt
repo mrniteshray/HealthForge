@@ -465,28 +465,6 @@ fun QuickActionsSection(
 }
 
 @Composable
-fun HealthMetricsSection(metrics: List<HealthMetric>) {
-    Column {
-        Text(
-            text = "Health Overview",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 2.dp)
-        ) {
-            items(metrics) { metric ->
-                HealthMetricCard(metric = metric)
-            }
-        }
-    }
-}
-
-@Composable
 fun HealthMetricCard(metric: HealthMetric) {
     Card(
         modifier = Modifier
@@ -1338,6 +1316,26 @@ fun getTimeBlockFromHour(hour: Int): TimeBlock {
     }
 }
 
+fun parseTimeString(timeString: String): Pair<Int, Int> {
+    return try {
+        val parts = timeString.split(":")
+        val hourMinute = parts[1].split(" ")
+        val hour = parts[0].toInt()
+        val minute = hourMinute[0].toInt()
+        val period = if (hourMinute.size > 1) hourMinute[1] else ""
+        
+        val adjustedHour = when {
+            period == "AM" && hour == 12 -> 0
+            period == "PM" && hour != 12 -> hour + 12
+            else -> hour
+        }
+        
+        Pair(adjustedHour, minute)
+    } catch (e: Exception) {
+        Pair(9, 0) // Default to 9:00 AM if parsing fails
+    }
+}
+
 fun getTimeBlockFromTime(time: String): TimeBlock {
     val hour = time.split(":")[0].toInt()
     return when (hour) {
@@ -1481,10 +1479,14 @@ fun AddTaskDialog(
     var description by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(TaskCategory.GENERAL) }
     var selectedPriority by remember { mutableStateOf(Priority.MEDIUM) }
-    var selectedTimeBlock by remember { mutableStateOf(TimeBlock.MORNING) }
     var expandedCategory by remember { mutableStateOf(false) }
     var expandedPriority by remember { mutableStateOf(false) }
-    var expandedTimeBlock by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    
+    val timePickerState = rememberTimePickerState(
+        initialHour = 9,
+        initialMinute = 0
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1596,48 +1598,35 @@ fun AddTaskDialog(
                 }
                 
                 item {
-                    ExposedDropdownMenuBox(
-                        expanded = expandedTimeBlock,
-                        onExpandedChange = { expandedTimeBlock = it }
-                    ) {
-                        OutlinedTextField(
-                            value = when(selectedTimeBlock) {
-                                TimeBlock.MORNING -> "Morning"
-                                TimeBlock.AFTERNOON -> "Afternoon"
-                                TimeBlock.EVENING -> "Evening"
-                                TimeBlock.NIGHT -> "Night"
-                            },
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Time Block") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedTimeBlock) },
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth()
-                        )
-                        
-                        ExposedDropdownMenu(
-                            expanded = expandedTimeBlock,
-                            onDismissRequest = { expandedTimeBlock = false }
-                        ) {
-                            TimeBlock.values().forEach { timeBlock ->
-                                DropdownMenuItem(
-                                    text = { 
-                                        Text(when(timeBlock) {
-                                            TimeBlock.MORNING -> "Morning"
-                                            TimeBlock.AFTERNOON -> "Afternoon"
-                                            TimeBlock.EVENING -> "Evening"
-                                            TimeBlock.NIGHT -> "Night"
-                                        })
-                                    },
-                                    onClick = {
-                                        selectedTimeBlock = timeBlock
-                                        expandedTimeBlock = false
-                                    }
+                    OutlinedTextField(
+                        value = String.format("%02d:%02d %s", 
+                            if (timePickerState.hour == 0) 12 
+                            else if (timePickerState.hour > 12) timePickerState.hour - 12 
+                            else timePickerState.hour,
+                            timePickerState.minute,
+                            if (timePickerState.hour < 12) "AM" else "PM"
+                        ),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Reminder Time") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Schedule,
+                                contentDescription = "Time"
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { showTimePicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Edit,
+                                    contentDescription = "Select Time"
                                 )
                             }
-                        }
-                    }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showTimePicker = true }
+                    )
                 }
             }
         },
@@ -1649,8 +1638,14 @@ fun AddTaskDialog(
                             id = System.currentTimeMillis().toInt(),
                             title = title.trim(),
                             description = description.trim(),
-                            timeBlock = selectedTimeBlock,
-                            time = "9:00 AM", // Default time, can be made configurable
+                            timeBlock = getTimeBlockFromHour(timePickerState.hour),
+                            time = String.format("%02d:%02d %s", 
+                                if (timePickerState.hour == 0) 12 
+                                else if (timePickerState.hour > 12) timePickerState.hour - 12 
+                                else timePickerState.hour,
+                                timePickerState.minute,
+                                if (timePickerState.hour < 12) "AM" else "PM"
+                            ),
                             category = selectedCategory,
                             isCompleted = false,
                             icon = when(selectedCategory) {
@@ -1661,7 +1656,7 @@ fun AddTaskDialog(
                                 TaskCategory.LIFESTYLE -> Icons.Filled.SelfImprovement
                                 TaskCategory.GENERAL -> Icons.Filled.Task
                             },
-                            priority = Priority.MEDIUM
+                            priority = selectedPriority
                         )
                         onConfirm(newTask)
                     }
@@ -1677,6 +1672,29 @@ fun AddTaskDialog(
             }
         }
     )
+    
+    // Time Picker Dialog
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = { showTimePicker = false }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+            title = {
+                Text("Select Reminder Time")
+            },
+            text = {
+                TimePicker(state = timePickerState)
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1690,10 +1708,15 @@ fun EditTaskDialog(
     var description by remember { mutableStateOf(task.description) }
     var selectedCategory by remember { mutableStateOf(task.category) }
     var selectedPriority by remember { mutableStateOf(task.priority) }
-    var selectedTimeBlock by remember { mutableStateOf(task.timeBlock) }
     var expandedCategory by remember { mutableStateOf(false) }
     var expandedPriority by remember { mutableStateOf(false) }
-    var expandedTimeBlock by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    
+    // Parse existing task time
+    val timePickerState = rememberTimePickerState(
+        initialHour = parseTimeString(task.time).first,
+        initialMinute = parseTimeString(task.time).second
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1805,48 +1828,35 @@ fun EditTaskDialog(
                 }
                 
                 item {
-                    ExposedDropdownMenuBox(
-                        expanded = expandedTimeBlock,
-                        onExpandedChange = { expandedTimeBlock = it }
-                    ) {
-                        OutlinedTextField(
-                            value = when(selectedTimeBlock) {
-                                TimeBlock.MORNING -> "Morning"
-                                TimeBlock.AFTERNOON -> "Afternoon"
-                                TimeBlock.EVENING -> "Evening"
-                                TimeBlock.NIGHT -> "Night"
-                            },
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Time Block") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedTimeBlock) },
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth()
-                        )
-                        
-                        ExposedDropdownMenu(
-                            expanded = expandedTimeBlock,
-                            onDismissRequest = { expandedTimeBlock = false }
-                        ) {
-                            TimeBlock.values().forEach { timeBlock ->
-                                DropdownMenuItem(
-                                    text = { 
-                                        Text(when(timeBlock) {
-                                            TimeBlock.MORNING -> "Morning"
-                                            TimeBlock.AFTERNOON -> "Afternoon"
-                                            TimeBlock.EVENING -> "Evening"
-                                            TimeBlock.NIGHT -> "Night"
-                                        })
-                                    },
-                                    onClick = {
-                                        selectedTimeBlock = timeBlock
-                                        expandedTimeBlock = false
-                                    }
+                    OutlinedTextField(
+                        value = String.format("%02d:%02d %s", 
+                            if (timePickerState.hour == 0) 12 
+                            else if (timePickerState.hour > 12) timePickerState.hour - 12 
+                            else timePickerState.hour,
+                            timePickerState.minute,
+                            if (timePickerState.hour < 12) "AM" else "PM"
+                        ),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Reminder Time") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Schedule,
+                                contentDescription = "Time"
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { showTimePicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Edit,
+                                    contentDescription = "Select Time"
                                 )
                             }
-                        }
-                    }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showTimePicker = true }
+                    )
                 }
             }
         },
@@ -1859,7 +1869,14 @@ fun EditTaskDialog(
                             description = description.trim(),
                             category = selectedCategory,
                             priority = selectedPriority,
-                            timeBlock = selectedTimeBlock
+                            timeBlock = getTimeBlockFromHour(timePickerState.hour),
+                            time = String.format("%02d:%02d %s", 
+                                if (timePickerState.hour == 0) 12 
+                                else if (timePickerState.hour > 12) timePickerState.hour - 12 
+                                else timePickerState.hour,
+                                timePickerState.minute,
+                                if (timePickerState.hour < 12) "AM" else "PM"
+                            )
                         )
                         onConfirm(updatedTask)
                     }
@@ -1875,5 +1892,28 @@ fun EditTaskDialog(
             }
         }
     )
+    
+    // Time Picker Dialog
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = { showTimePicker = false }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+            title = {
+                Text("Select Reminder Time")
+            },
+            text = {
+                TimePicker(state = timePickerState)
+            }
+        )
+    }
 }
 
