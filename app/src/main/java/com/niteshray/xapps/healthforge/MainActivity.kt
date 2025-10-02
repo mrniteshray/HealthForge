@@ -1,17 +1,22 @@
 package com.niteshray.xapps.healthforge
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.niteshray.xapps.healthforge.core.permissions.PermissionManager
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.LoginScreen
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.SignupScreen
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.UserSetupScreen
@@ -23,23 +28,57 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    
+    companion object {
+        const val TAG = "MainActivity"
+    }
+    
+    private lateinit var permissionManager: PermissionManager
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "MainActivity created")
+        
+        permissionManager = PermissionManager(this)
+        
         enableEdgeToEdge()
         setContent {
             HealthForgeTheme {
-                App()
+                App(permissionManager = permissionManager)
             }
         }
     }
 }
 
 @Composable
-fun App(){
+fun App(permissionManager: PermissionManager){
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = hiltViewModel()
 
     val authToken by authViewModel.authtoken.collectAsStateWithLifecycle()
+    
+    var permissionsGranted by remember { mutableStateOf(false) }
+    
+    // Request permissions when app starts
+    LaunchedEffect(Unit) {
+        Log.d("App", "Requesting permissions on app start")
+        if (permissionManager.areAllPermissionsGranted()) {
+            Log.d("App", "Permissions already granted")
+            permissionsGranted = true
+        } else {
+            permissionManager.requestAllPermissions(
+                onGranted = {
+                    Log.d("App", "All permissions granted successfully")
+                    permissionsGranted = true
+                },
+                onDenied = {
+                    Log.w("App", "Permissions denied by user")
+                    // Show a dialog or message to user about required permissions
+                    permissionsGranted = false
+                }
+            )
+        }
+    }
 
     val startDestination = if (authToken.isNullOrBlank()) Routes.Login.route else Routes.Home.route
     NavHost(navController = navController , startDestination = startDestination){

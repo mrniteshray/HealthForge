@@ -1,5 +1,11 @@
 package com.niteshray.xapps.healthforge.feature.home.presentation.viewmodel
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.util.Log
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -24,6 +30,9 @@ import com.niteshray.xapps.healthforge.feature.home.presentation.compose.toDataT
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import com.google.firebase.auth.FirebaseAuth
+import com.niteshray.xapps.healthforge.core.notifications.ReminderManager
+import com.niteshray.xapps.healthforge.core.notifications.TaskReminderReceiver
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +45,11 @@ class HomeViewModel @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val taskRepository: TaskRepository
 ) : ViewModel() {
+    
+    companion object {
+        const val TAG = "HomeViewModel"
+    }
+    
     var errorMessage = mutableStateOf<String?>(null)
     var isLoading = mutableStateOf(false)
 
@@ -58,8 +72,11 @@ class HomeViewModel @Inject constructor(
     private fun loadTasks() {
         viewModelScope.launch {
             _isTasksLoading.value = true
+            Log.d(TAG, "Loading tasks from database")
+            
             taskRepository.getAllTasks()
                 .catch { e ->
+                    Log.e(TAG, "Failed to load tasks from database", e)
                     errorMessage.value = "Failed to load tasks: ${e.message}"
                     _isTasksLoading.value = false
                 }
@@ -67,6 +84,7 @@ class HomeViewModel @Inject constructor(
                     dataTaskList.map { it.toPresentationTask() }
                 }
                 .collect { taskList ->
+                    Log.d(TAG, "Loaded ${taskList.size} tasks from database")
                     _tasks.value = taskList
                     generatedTasks.value = taskList // For backward compatibility
                     _isTasksLoading.value = false
@@ -79,10 +97,12 @@ class HomeViewModel @Inject constructor(
 //    val userName = _userName.asStateFlow()
 
 
-    fun generateTasksFromReport(medicalReport: String) {
+    fun generateTasksFromReport(medicalReport: String, context: Context) {
         viewModelScope.launch {
             isLoading.value = true
             errorMessage.value = null
+            Log.d(TAG, "Starting task generation from medical report")
+            
             try {
                 val prompt = """
                     Based on this medical report: '$medicalReport'
@@ -109,6 +129,8 @@ class HomeViewModel @Inject constructor(
                     Respond ONLY with the JSON object—no extra text.
                 """.trimIndent()
 
+                Log.d(TAG, "Sending request to AI service")
+                
                 val request = ChatRequest(
                     messages = listOf(
                         Message("system", "You are a medical AI assistant. Respond only in valid JSON."),
@@ -118,22 +140,37 @@ class HomeViewModel @Inject constructor(
 
                 val response = cerebrasApi.generateContent(request)
                 val generatedContent = response.choices.firstOrNull()?.message?.content ?: "{}"
+                
+                Log.d(TAG, "Received AI response: ${generatedContent.take(200)}...")
 
                 val jsonRegex = Regex("""\{[\s\S]*\}""")
                 val jsonMatch = jsonRegex.find(generatedContent)
                 val jsonString = jsonMatch?.value ?: throw Exception("No valid JSON found")
 
+                Log.d(TAG, "Extracted JSON: ${jsonString.take(200)}...")
+
                 // Parse and convert to Task objects then save to database
                 val parsedTasks = parseJsonToTasks(jsonString)
+                
+                Log.d(TAG, "Parsed ${parsedTasks.size} tasks successfully")
+                
                 viewModelScope.launch {
                     try {
+                        // Save tasks to database first
                         taskRepository.insertTasks(parsedTasks)
-                        // Tasks will be automatically updated through the flow in loadTasks()
+                        Log.d(TAG, "Tasks saved to database successfully")
+                        
+                        // Then schedule reminders for all tasks
+                        ReminderManager.scheduleAllTasks(context, parsedTasks)
+                        Log.d(TAG, "Reminders scheduled for all generated tasks")
+                        
                     } catch (e: Exception) {
+                        Log.e(TAG, "Failed to save tasks or schedule reminders", e)
                         errorMessage.value = "Failed to save tasks: ${e.message}"
                     }
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to generate tasks from report", e)
                 errorMessage.value = "Failed: ${e.message}"
             } finally {
                 isLoading.value = false
@@ -141,42 +178,168 @@ class HomeViewModel @Inject constructor(
         }
     }
     
-    fun resetTasks() {
+    fun resetTasks(context: Context) {
         viewModelScope.launch {
+            Log.d(TAG, "Resetting all tasks")
+            
             try {
+                // Get all current task IDs before deleting
+                val currentTasks = _tasks.value
+                val taskIds = currentTasks.map { it.id }
+                
+                Log.d(TAG, "Canceling ${taskIds.size} task reminders")
+                
+                // Cancel all reminders first
+                ReminderManager.cancelAllTaskReminders(context, taskIds)
+                
+                // Then delete all tasks from database
                 taskRepository.deleteAllTasks()
+                Log.d(TAG, "All tasks deleted from database successfully")
+                
                 errorMessage.value = null
+                
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to reset tasks", e)
                 errorMessage.value = "Failed to reset tasks: ${e.message}"
             }
         }
     }
     
-    fun addTask(task: Task) {
+    fun addTask(task: Task, context : Context) {
         viewModelScope.launch {
+            Log.d(TAG, "Adding new task: ${task.title} at ${task.time}")
+            
             try {
-                taskRepository.insertTask(task.toDataTask())
+                // First save to database to get the proper ID
+                val dataTask = task.toDataTask()
+                taskRepository.insertTask(dataTask)
+                Log.d(TAG, "Task saved to database successfully")
+                
+                // Schedule reminder using the saved task
+                ReminderManager.scheduleTaskReminder(context, dataTask)
+                Log.d(TAG, "Reminder scheduled for new task: ${task.title}")
+                
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to add task: ${task.title}", e)
                 errorMessage.value = "Failed to add task: ${e.message}"
             }
         }
     }
+
+    fun testNotificationAndTTS(context: Context) {
+        Log.d(TAG, "Testing notification and TTS system")
+        
+        try {
+            // Create a test task reminder
+            val intent = Intent(context, TaskReminderReceiver::class.java).apply {
+                putExtra("TASK_ID", 9999)
+                putExtra("TASK_TITLE", "Test Health Reminder")
+                putExtra("TASK_DESCRIPTION", "This is a test notification to verify that your health reminders are working properly.")
+            }
+            
+            // Trigger the receiver directly for testing
+            val receiver = TaskReminderReceiver()
+            receiver.onReceive(context, intent)
+            
+            Log.d(TAG, "Test notification and TTS triggered successfully")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to test notification and TTS", e)
+        }
+    }
     
-    fun updateTask(updatedTask: Task) {
+    fun scheduleTestReminder(context: Context) {
+        Log.d(TAG, "Scheduling test reminder for 30 seconds from now")
+        
+        try {
+            // Create a test task that will trigger in 30 seconds
+            val testTask = com.niteshray.xapps.healthforge.feature.home.data.models.Task(
+                id = 9999,
+                title = "Test Reminder",
+                description = "This is a test reminder scheduled for 30 seconds",
+                time = "12:00 PM", // This will be ignored for the test
+                timeBlock = TimeBlock.AFTERNOON,
+                category = TaskCategory.GENERAL,
+                priority = Priority.HIGH,
+                isCompleted = false
+            )
+            
+            // Schedule it using AlarmManager but override the time
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            
+            val intent = Intent(context, TaskReminderReceiver::class.java).apply {
+                putExtra("TASK_ID", testTask.id)
+                putExtra("TASK_TITLE", testTask.title)
+                putExtra("TASK_DESCRIPTION", testTask.description)
+            }
+            
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                testTask.id,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            // Schedule for 30 seconds from now
+            val triggerTime = System.currentTimeMillis() + 30000 // 30 seconds
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            }
+            
+            Log.d(TAG, "Test reminder scheduled for 30 seconds from now")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule test reminder", e)
+        }
+    }
+    
+    fun updateTask(updatedTask: Task, context: Context) {
         viewModelScope.launch {
+            Log.d(TAG, "Updating task: ${updatedTask.id} - ${updatedTask.title}")
+            
             try {
-                taskRepository.updateTask(updatedTask.toDataTask())
+                val dataTask = updatedTask.toDataTask()
+                taskRepository.updateTask(dataTask)
+                Log.d(TAG, "Task updated in database successfully")
+                
+                // Cancel old reminder and schedule new one
+                ReminderManager.cancelTaskReminder(context, updatedTask.id)
+                ReminderManager.scheduleTaskReminder(context, dataTask)
+                Log.d(TAG, "Task reminder rescheduled for updated task: ${updatedTask.title}")
+                
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to update task: ${updatedTask.title}", e)
                 errorMessage.value = "Failed to update task: ${e.message}"
             }
         }
     }
     
-    fun deleteTask(taskId: Int) {
+    fun deleteTask(taskId: Int, context: Context) {
         viewModelScope.launch {
+            Log.d(TAG, "Deleting task: $taskId")
+            
             try {
+                // Cancel reminder first
+                ReminderManager.cancelTaskReminder(context, taskId)
+                Log.d(TAG, "Reminder canceled for task: $taskId")
+                
+                // Then delete from database
                 taskRepository.deleteTaskById(taskId)
+                Log.d(TAG, "Task deleted from database successfully")
+                
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete task: $taskId", e)
                 errorMessage.value = "Failed to delete task: ${e.message}"
             }
         }

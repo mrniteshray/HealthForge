@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import java.time.LocalTime
 import android.net.Uri
@@ -79,7 +80,7 @@ fun HealthcareDashboard(
             coroutineScope.launch {
                 try {
                     val extractedText = extractTextFromPDF(context, uri)
-                    viewModel.generateTasksFromReport(extractedText)
+                    viewModel.generateTasksFromReport(extractedText, context)
                 } catch (e: Exception) {
                     viewModel.errorMessage.value = "Failed to process PDF: ${e.message}"
                 }
@@ -159,6 +160,18 @@ fun HealthcareDashboard(
             )
         }
         
+//        // Debug Section for testing notifications and TTS
+//        item {
+//            DebugTestSection(
+//                onTestNotification = {
+//                    viewModel.testNotificationAndTTS(context)
+//                },
+//                onScheduleTestReminder = {
+//                    viewModel.scheduleTestReminder(context)
+//                }
+//            )
+//        }
+        
         // Processing indicator
         if (isProcessingReport) {
             item {
@@ -182,7 +195,7 @@ fun HealthcareDashboard(
                         showEditTaskDialog = true
                     },
                     onTaskDelete = { taskId ->
-                        viewModel.deleteTask(taskId)
+                        viewModel.deleteTask(taskId, context)
                     }
                 )
             }
@@ -215,7 +228,7 @@ fun HealthcareDashboard(
                         icon = Icons.Filled.Medication,
                         priority = Priority.HIGH
                     )
-                    viewModel.addTask(task)
+                    viewModel.addTask(task,context)
                 }
                 showAddMedicationDialog = false
             }
@@ -227,7 +240,7 @@ fun HealthcareDashboard(
         AddTaskDialog(
             onDismiss = { showAddTaskDialog = false },
             onConfirm = { newTask ->
-                viewModel.addTask(newTask)
+                viewModel.addTask(newTask,context)
                 showAddTaskDialog = false
             }
         )
@@ -242,7 +255,7 @@ fun HealthcareDashboard(
                 taskToEdit = null
             },
             onConfirm = { updatedTask ->
-                viewModel.updateTask(updatedTask)
+                viewModel.updateTask(updatedTask, context)
                 showEditTaskDialog = false
                 taskToEdit = null
             }
@@ -1517,6 +1530,75 @@ suspend fun extractTextFromPDF(context: Context, pdfUri: Uri): String {
         text.toString().trim()
     } catch (e: Exception) {
         throw Exception("Failed to extract text from PDF: ${e.message}")
+    }
+}
+
+@Composable
+fun DebugTestSection(
+    onTestNotification: () -> Unit,
+    onScheduleTestReminder: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "🔧 Debug & Test",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Test Notification Button
+                Button(
+                    onClick = onTestNotification,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                    )
+                ) {
+                    Text(
+                        text = "Test Now",
+                        fontSize = 12.sp
+                    )
+                }
+                
+                // Schedule Test Reminder Button
+                Button(
+                    onClick = onScheduleTestReminder,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                    )
+                ) {
+                    Text(
+                        text = "Test 30s",
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            
+            Text(
+                text = "Use these buttons to test notifications and TTS. Check logs for debugging info.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
     }
 }
 
