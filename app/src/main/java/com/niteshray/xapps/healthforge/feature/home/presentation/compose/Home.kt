@@ -14,11 +14,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.google.firebase.auth.FirebaseAuth
 
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
+    onLogout : () -> Unit
 ) {
     val bottomNavItems = listOf(
         BottomNavItem.Dashboard,
@@ -47,6 +49,7 @@ fun HomeScreen(
             composable(BottomNavItem.Appointments.route) {
             }
             composable(BottomNavItem.Profile.route) {
+                ProfileScreen(onLogout = onLogout)
             }
         }
     }

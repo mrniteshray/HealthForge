@@ -105,7 +105,14 @@ fun App(permissionManager: PermissionManager){
         }
 
         composable(Routes.Home.route){
-            HomeScreen()
+            HomeScreen(
+                onLogout = {
+                    navController.navigate(Routes.Login.route) {
+                        popUpTo(Routes.Home.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            )
         }
 
         composable(Routes.UserSetup.route){

@@ -113,7 +113,7 @@ class AuthViewModel @Inject constructor(
                             errorMessage = null
                         )
                         prefStore.saveString(PreferenceKey.AUTH_TOKEN , authResponse.token)
-                        authRepository.SignUpWithEmail(email,password)
+                        authRepository.SignUpWithEmail(email, password, name)
                     } else {
                         authState = authState.copy(
                             isLoading = false,
@@ -183,5 +183,33 @@ class AuthViewModel @Inject constructor(
 
     fun logout() {
         authState = AuthState()
+    }
+
+    fun performLogout() {
+        viewModelScope.launch {
+            try {
+                // Clear Firebase authentication
+                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                
+                // Clear AuthToken from DataStore
+                prefStore.remove(PreferenceKey.AUTH_TOKEN)
+                
+                // Clear other user-related data
+                prefStore.remove(PreferenceKey.USER_ID)
+                prefStore.remove(PreferenceKey.USER_EMAIL)
+                prefStore.remove(PreferenceKey.USER_NAME)
+                prefStore.saveBoolean(PreferenceKey.IS_LOGGED_IN, false)
+                
+                // Reset auth state
+                authState = AuthState()
+                _authToken.value = ""
+                
+            } catch (e: Exception) {
+                // Handle logout error if needed
+                authState = authState.copy(
+                    errorMessage = "Error during logout: ${e.message}"
+                )
+            }
+        }
     }
 }

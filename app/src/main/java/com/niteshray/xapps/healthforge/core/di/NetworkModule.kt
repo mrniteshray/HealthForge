@@ -46,23 +46,54 @@ class NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(
-        loggingInterceptor: HttpLoggingInterceptor,
-        dataStore : DataStore
+    fun provideBaseOkHttpClient(
+        loggingInterceptor: HttpLoggingInterceptor
     ): OkHttpClient =
         OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
-//            .addInterceptor { chain ->
-//                val token = runBlocking {
-//                    dataStore.getStringOnce(PreferenceKey.AUTH_TOKEN)
-//                }
-//
-//                val newRequest = chain.request().newBuilder()
-//                    .addHeader("Authorization", "Bearer $token")
-//                    .build()
-//
-//                chain.proceed(newRequest)
-//            }
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+
+    @Provides
+    @Singleton
+    @Named("HealthForgeClient")
+    fun provideHealthForgeOkHttpClient(
+        loggingInterceptor: HttpLoggingInterceptor,
+        dataStore: DataStore
+    ): OkHttpClient =
+        OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .addInterceptor { chain ->
+                val token = runBlocking {
+                    dataStore.getStringOnce(PreferenceKey.AUTH_TOKEN)
+                }
+
+                val newRequest = chain.request().newBuilder()
+                    .addHeader("Authorization", "Bearer $token")
+                    .build()
+
+                chain.proceed(newRequest)
+            }
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+
+    @Provides
+    @Singleton
+    @Named("CerebrasClient")
+    fun provideCerebrasOkHttpClient(
+        loggingInterceptor: HttpLoggingInterceptor
+    ): OkHttpClient =
+        OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .addHeader("Authorization", "Bearer $cerebasApiKey")
+                    .addHeader("Content-Type", "application/json")
+                    .build()
+                chain.proceed(request)
+            }
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -74,34 +105,22 @@ class NetworkModule {
     @Provides
     @Singleton
     @Named("BackendRetrofit")
-    fun provideBackendRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit =
+    fun provideBackendRetrofit(@Named("HealthForgeClient") okHttpClient: OkHttpClient, gson: Gson): Retrofit =
         Retrofit.Builder()
             .baseUrl("https://healthforgee-backend.vercel.app/api/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
 
-
     @Provides
     @Singleton
     @Named("CerebrasRetrofit")
-    fun provideCerebrasRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        val cerebrasOkHttpClient = okHttpClient.newBuilder()
-            .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
-                    .addHeader("Authorization", "Bearer $cerebasApiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .build()
-                chain.proceed(request)
-            }
-            .build()
-
-        return Retrofit.Builder()
+    fun provideCerebrasRetrofit(@Named("CerebrasClient") okHttpClient: OkHttpClient, gson: Gson): Retrofit =
+        Retrofit.Builder()
             .baseUrl("https://api.cerebras.ai/")
-            .client(cerebrasOkHttpClient)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
-    }
 
     @Provides
     @Singleton

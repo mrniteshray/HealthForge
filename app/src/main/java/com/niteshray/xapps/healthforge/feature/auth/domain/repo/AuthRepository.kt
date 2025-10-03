@@ -42,9 +42,17 @@ class AuthRepository @Inject constructor(
         return authApiService.loginUser(loginUser)
     }
 
-    suspend fun SignUpWithEmail(email: String , pass : String){
-        firebasAuth.createUserWithEmailAndPassword(email,pass).addOnSuccessListener {
-            firebasAuth.signInWithEmailAndPassword(email,pass)
+    suspend fun SignUpWithEmail(email: String, pass: String, displayName: String) {
+        firebasAuth.createUserWithEmailAndPassword(email, pass).addOnSuccessListener { result ->
+            // Update the user profile with display name
+            val user = result.user
+            val profileUpdates = com.google.firebase.auth.userProfileChangeRequest {
+                this.displayName = displayName
+            }
+            user?.updateProfile(profileUpdates)?.addOnCompleteListener { 
+                // Sign in after profile update
+                firebasAuth.signInWithEmailAndPassword(email, pass)
+            }
         }
     }
 
