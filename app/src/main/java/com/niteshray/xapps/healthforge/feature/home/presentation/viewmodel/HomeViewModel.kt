@@ -271,6 +271,8 @@ class HomeViewModel @Inject constructor(
                 putExtra("TASK_ID", testTask.id)
                 putExtra("TASK_TITLE", testTask.title)
                 putExtra("TASK_DESCRIPTION", testTask.description)
+                putExtra("TASK_CATEGORY", "MEDICATION")
+                putExtra("TASK_PRIORITY", "HIGH")
             }
             
             val pendingIntent = PendingIntent.getBroadcast(

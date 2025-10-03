@@ -40,12 +40,14 @@ class TTSService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "TTSService started")
+        Log.d(TAG, "Enhanced TTSService started")
         
         textToSpeak = intent?.getStringExtra("TEXT_TO_SPEAK") ?: ""
-        utteranceId = "TASK_REMINDER_${System.currentTimeMillis()}"
+        val originalTitle = intent?.getStringExtra("TASK_TITLE") ?: "Unknown Task"
+        utteranceId = "HEALTH_REMINDER_${System.currentTimeMillis()}"
         
-        Log.d(TAG, "Text to speak: '$textToSpeak'")
+        Log.d(TAG, "Original task title: '$originalTitle'")
+        Log.d(TAG, "Interactive message to speak: '$textToSpeak'")
         Log.d(TAG, "Utterance ID: $utteranceId")
 
         if (textToSpeak.isEmpty()) {
@@ -54,7 +56,7 @@ class TTSService : Service(), TextToSpeech.OnInitListener {
             return START_NOT_STICKY
         }
 
-        // Create foreground notification for Android O+
+        // Create enhanced foreground notification for Android O+
         createForegroundNotification()
 
         return START_NOT_STICKY
@@ -65,34 +67,45 @@ class TTSService : Service(), TextToSpeech.OnInitListener {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
-                    "TTS Service",
-                    NotificationManager.IMPORTANCE_LOW
+                    "🔊 HealthForge Voice Assistant",
+                    NotificationManager.IMPORTANCE_MIN
                 ).apply {
-                    description = "Text-to-Speech service for task reminders"
+                    description = "Background voice assistant for health reminders"
                     enableVibration(false)
+                    enableLights(false)
                     setSound(null, null)
+                    setShowBadge(false)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_SECRET
                 }
                 
                 val notificationManager = getSystemService(NotificationManager::class.java)
                 notificationManager?.createNotificationChannel(channel)
                 
-                Log.d(TAG, "Notification channel created")
+                Log.d(TAG, "Enhanced TTS notification channel created")
             }
 
+            // Create a subtle, non-intrusive notification
             val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("HealthForge TTS")
-                .setContentText("Speaking task reminder...")
-                .setSmallIcon(R.drawable.ic_launcher_foreground) // Make sure this icon exists
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setContentTitle("🗣️ Voice Assistant Active")
+                .setContentText("Speaking your health reminder...")
+                .setSubText("HealthForge")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
                 .setAutoCancel(false)
                 .setOngoing(true)
+                .setSilent(true)
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                .setShowWhen(false)
+                .setProgress(100, 0, true) // Indeterminate progress
+                .setColor(android.graphics.Color.parseColor("#4CAF50"))
                 .build()
 
             startForeground(NOTIFICATION_ID, notification)
-            Log.d(TAG, "Foreground service started")
+            Log.d(TAG, "Enhanced TTS foreground service started")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create foreground notification", e)
+            Log.e(TAG, "Failed to create enhanced foreground notification", e)
             // If we can't create notification, just stop the service
             stopSelf()
         }
@@ -120,48 +133,76 @@ class TTSService : Service(), TextToSpeech.OnInitListener {
             // Set up utterance progress listener
             ttsEngine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
-                    Log.d(TAG, "TTS started speaking: $utteranceId")
+                    Log.d(TAG, "🗣️ Enhanced TTS started speaking: $utteranceId")
+                    updateNotificationProgress("Speaking your health reminder...")
                 }
 
                 override fun onDone(utteranceId: String?) {
-                    Log.d(TAG, "TTS finished speaking: $utteranceId")
-                    // Stop service after speaking is done
-                    Handler(Looper.getMainLooper()).post {
+                    Log.d(TAG, "✅ Enhanced TTS finished speaking: $utteranceId")
+                    updateNotificationProgress("Health reminder completed")
+                    // Stop service after a short delay
+                    Handler(Looper.getMainLooper()).postDelayed({
                         stopSelf()
-                    }
+                    }, 1000)
                 }
 
                 override fun onError(utteranceId: String?) {
-                    Log.e(TAG, "TTS error for utterance: $utteranceId")
+                    Log.e(TAG, "❌ Enhanced TTS error for utterance: $utteranceId")
+                    updateNotificationProgress("Voice reminder failed")
                     Handler(Looper.getMainLooper()).post {
                         stopSelf()
                     }
                 }
             })
 
-            // Try to set language to Hindi first
+            // Try to set language to Hindi first for better user experience
             var languageResult = ttsEngine.setLanguage(Locale("hi", "IN"))
-            Log.d(TAG, "Hindi language setting result: $languageResult")
+            Log.d(TAG, "🇮🇳 Hindi language setting result: $languageResult")
             
             if (languageResult == TextToSpeech.LANG_MISSING_DATA ||
                 languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                // Fallback to English
+                // Fallback to English with clear logging
                 languageResult = ttsEngine.setLanguage(Locale.US)
-                Log.d(TAG, "English language setting result: $languageResult")
+                Log.d(TAG, "🇺🇸 English language setting result: $languageResult")
                 
                 if (languageResult == TextToSpeech.LANG_MISSING_DATA ||
                     languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e(TAG, "No supported language found")
+                    Log.e(TAG, "❌ No supported language found for TTS")
                     stopSelf()
                     return
                 }
             }
             
-            // Set speech rate and pitch
-            ttsEngine.setSpeechRate(0.9f) // Slightly slower for better clarity
-            ttsEngine.setPitch(1.0f) // Normal pitch
+            // Enhanced speech parameters for health reminders
+            ttsEngine.setSpeechRate(0.85f) // Slightly slower for clarity and emphasis
+            ttsEngine.setPitch(1.1f) // Slightly higher pitch for friendliness
             
-            Log.d(TAG, "TTS configured successfully")
+            Log.d(TAG, "🎛️ Enhanced TTS configured successfully with optimized settings")
+        }
+    }
+
+    private fun updateNotificationProgress(status: String) {
+        try {
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("🗣️ Voice Assistant Active")
+                .setContentText(status)
+                .setSubText("HealthForge")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setAutoCancel(false)
+                .setOngoing(true)
+                .setSilent(true)
+                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                .setShowWhen(false)
+                .setProgress(100, 0, true)
+                .setColor(android.graphics.Color.parseColor("#4CAF50"))
+                .build()
+
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager?.notify(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update notification progress", e)
         }
     }
     

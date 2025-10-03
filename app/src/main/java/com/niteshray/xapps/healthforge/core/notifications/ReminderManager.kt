@@ -36,6 +36,8 @@ object ReminderManager {
                 putExtra("TASK_ID", task.id)
                 putExtra("TASK_TITLE", task.title)
                 putExtra("TASK_DESCRIPTION", task.description)
+                putExtra("TASK_CATEGORY", task.category.name)
+                putExtra("TASK_PRIORITY", task.priority.name)
             }
 
             val pendingIntent = PendingIntent.getBroadcast(

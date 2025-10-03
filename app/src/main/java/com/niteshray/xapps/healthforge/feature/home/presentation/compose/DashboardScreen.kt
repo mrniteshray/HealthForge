@@ -160,17 +160,17 @@ fun HealthcareDashboard(
             )
         }
         
-//        // Debug Section for testing notifications and TTS
-//        item {
-//            DebugTestSection(
-//                onTestNotification = {
-//                    viewModel.testNotificationAndTTS(context)
-//                },
-//                onScheduleTestReminder = {
-//                    viewModel.scheduleTestReminder(context)
-//                }
-//            )
-//        }
+        // Debug Section for testing notifications and TTS
+        item {
+            DebugTestSection(
+                onTestNotification = {
+                    viewModel.testNotificationAndTTS(context)
+                },
+                onScheduleTestReminder = {
+                    viewModel.scheduleTestReminder(context)
+                }
+            )
+        }
         
         // Processing indicator
         if (isProcessingReport) {
