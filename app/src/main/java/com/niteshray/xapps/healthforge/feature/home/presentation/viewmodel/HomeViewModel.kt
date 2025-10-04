@@ -210,12 +210,10 @@ class HomeViewModel @Inject constructor(
             Log.d(TAG, "Adding new task: ${task.title} at ${task.time}")
             
             try {
-                // First save to database to get the proper ID
                 val dataTask = task.toDataTask()
                 taskRepository.insertTask(dataTask)
                 Log.d(TAG, "Task saved to database successfully")
-                
-                // Schedule reminder using the saved task
+
                 ReminderManager.scheduleTaskReminder(context, dataTask)
                 Log.d(TAG, "Reminder scheduled for new task: ${task.title}")
                 
@@ -233,8 +231,8 @@ class HomeViewModel @Inject constructor(
             // Create a test task reminder
             val intent = Intent(context, TaskReminderReceiver::class.java).apply {
                 putExtra("TASK_ID", 9999)
-                putExtra("TASK_TITLE", "Test Health Reminder")
-                putExtra("TASK_DESCRIPTION", "This is a test notification to verify that your health reminders are working properly.")
+                putExtra("TASK_TITLE", "Medicine Reminder")
+                putExtra("TASK_DESCRIPTION", "Hello User , it's your medicine time")
             }
             
             // Trigger the receiver directly for testing

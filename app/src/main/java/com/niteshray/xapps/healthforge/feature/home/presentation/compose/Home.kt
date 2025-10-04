@@ -2,10 +2,9 @@ package com.niteshray.xapps.healthforge.feature.home.presentation.compose
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -14,7 +13,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.google.firebase.auth.FirebaseAuth
+import com.niteshray.xapps.healthforge.feature.Assistant.presentation.AssistantScreen
 
 @Composable
 fun HomeScreen(
@@ -28,28 +27,50 @@ fun HomeScreen(
         BottomNavItem.Profile
     )
 
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val showBottomBar = currentRoute != "assistant"
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            BottomNavigationBar(
-                navController = navController,
-                items = bottomNavItems
-            )
+            if (showBottomBar) {
+                BottomNavigationBar(
+                    navController = navController,
+                    items = bottomNavItems
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.surface
     ) { paddingValues ->
         NavHost(
             navController = navController,
-            startDestination = BottomNavItem.Dashboard.route,
-            modifier = Modifier.padding(paddingValues)
+            startDestination = BottomNavItem.Dashboard.route
         ) {
             composable(BottomNavItem.Dashboard.route) {
-                HealthcareDashboard()
+                HealthcareDashboard(
+                    modifier = Modifier.padding(paddingValues),
+                    onNavigateToAssistant = {
+                        navController.navigate("assistant")
+                    }
+                )
             }
             composable(BottomNavItem.Appointments.route) {
+                // Appointments screen placeholder
+                Box(modifier = Modifier.padding(paddingValues))
+            }
+            composable("assistant") {
+                AssistantScreen(
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
             }
             composable(BottomNavItem.Profile.route) {
-                ProfileScreen(onLogout = onLogout)
+                ProfileScreen(
+                    modifier = Modifier.padding(paddingValues),
+                    onLogout = onLogout
+                )
             }
         }
     }

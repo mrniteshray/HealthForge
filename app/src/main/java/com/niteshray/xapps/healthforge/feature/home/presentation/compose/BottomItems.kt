@@ -5,9 +5,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class BottomNavItem(
@@ -27,6 +29,13 @@ sealed class BottomNavItem(
         title = "Appointments",
         selectedIcon = Icons.Filled.Schedule,
         unselectedIcon = Icons.Outlined.Schedule
+    )
+
+    data object Assistant : BottomNavItem(
+        route = "assistant",
+        title = "Assistant",
+        selectedIcon = Icons.Filled.SmartToy,
+        unselectedIcon = Icons.Outlined.SmartToy
     )
 
     data object Profile : BottomNavItem(

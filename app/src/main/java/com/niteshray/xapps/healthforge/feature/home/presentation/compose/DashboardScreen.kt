@@ -54,6 +54,8 @@ import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun HealthcareDashboard(
+    modifier: Modifier = Modifier,
+    onNavigateToAssistant: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     var medications by remember { mutableStateOf<List<Medication>>(emptyList()) }
@@ -117,7 +119,8 @@ fun HealthcareDashboard(
         return
     }
 
-    LazyColumn(
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -160,17 +163,17 @@ fun HealthcareDashboard(
             )
         }
         
-        // Debug Section for testing notifications and TTS
-        item {
-            DebugTestSection(
-                onTestNotification = {
-                    viewModel.testNotificationAndTTS(context)
-                },
-                onScheduleTestReminder = {
-                    viewModel.scheduleTestReminder(context)
-                }
-            )
-        }
+//        // Debug Section for testing notifications and TTS
+//        item {
+//            DebugTestSection(
+//                onTestNotification = {
+//                    viewModel.testNotificationAndTTS(context)
+//                },
+//                onScheduleTestReminder = {
+//                    viewModel.scheduleTestReminder(context)
+//                }
+//            )
+//        }
         
         // Processing indicator
         if (isProcessingReport) {
@@ -205,6 +208,22 @@ fun HealthcareDashboard(
                     pdfPickerLauncher.launch("application/pdf")
                 })
             }
+        }
+    }
+
+        // AI Assistant FAB
+        FloatingActionButton(
+            onClick = onNavigateToAssistant,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+            containerColor = MaterialTheme.colorScheme.primary
+        ) {
+            Icon(
+                imageVector = Icons.Default.SmartToy,
+                contentDescription = "Open AI Assistant",
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
         }
     }
 
