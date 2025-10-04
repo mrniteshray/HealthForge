@@ -120,7 +120,7 @@ class HomeViewModel @Inject constructor(
                     }
                     
                     Guidelines:
-                    - Create 10-12 tasks covering medication, exercise, diet, monitoring, lifestyle
+                    - Create 5 tasks covering medication, exercise, diet, monitoring, lifestyle
                     - Use specific times (8:00 AM, 1:30 PM, etc.)
                     - HIGH priority for medications/critical monitoring
                     - MEDIUM for diet/regular monitoring

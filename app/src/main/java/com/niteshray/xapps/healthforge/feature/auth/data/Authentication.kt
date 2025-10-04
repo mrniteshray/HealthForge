@@ -3,6 +3,7 @@ package com.niteshray.xapps.healthforge.feature.auth.data
 import com.niteshray.xapps.healthforge.feature.auth.domain.model.AuthResponse
 import com.niteshray.xapps.healthforge.feature.auth.domain.model.RegisterUser
 import com.niteshray.xapps.healthforge.feature.auth.domain.model.loginUser
+import com.niteshray.xapps.healthforge.feature.doctors.domain.model.Doctor
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.POST
@@ -14,6 +15,9 @@ interface Authentication {
 
     @POST("user/login")
     suspend fun loginUser(@Body loginUser: loginUser) : Response<AuthResponse>
+
+    @POST("doctor/register")
+    suspend fun RegisterDoctor(@Body doctorData : Doctor) : Response<AuthResponse>
 
     @POST("user/update-health-info")
     suspend fun updateHealthInfo(

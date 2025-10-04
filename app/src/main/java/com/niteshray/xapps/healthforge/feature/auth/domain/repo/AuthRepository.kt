@@ -8,6 +8,7 @@ import com.niteshray.xapps.healthforge.feature.auth.domain.model.AuthResponse
 import com.niteshray.xapps.healthforge.feature.auth.domain.model.RegisterUser
 import com.niteshray.xapps.healthforge.feature.auth.domain.model.loginUser
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.UserBasicHealthInfo
+import com.niteshray.xapps.healthforge.feature.doctors.domain.model.Doctor
 import retrofit2.Response
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,6 +20,10 @@ class AuthRepository @Inject constructor(
 ) {
     suspend fun registerUser(registerUser: RegisterUser): Response<AuthResponse> {
         return authApiService.RegisterUser(registerUser)
+    }
+
+    suspend fun registerDoctor(doctor: Doctor): Response<AuthResponse> {
+        return authApiService.RegisterDoctor(doctor)
     }
 
     suspend fun saveHealthInfo(userId : String,info : UserBasicHealthInfo) : Response<Authentication.ApiResponse>{

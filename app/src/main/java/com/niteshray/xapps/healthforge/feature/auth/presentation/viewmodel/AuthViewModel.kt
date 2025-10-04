@@ -12,6 +12,8 @@ import com.niteshray.xapps.healthforge.feature.auth.domain.model.loginUser
 import com.niteshray.xapps.healthforge.feature.auth.domain.repo.AuthRepository
 import com.niteshray.xapps.healthforge.feature.auth.domain.repo.UserRepository
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.UserBasicHealthInfo
+import com.niteshray.xapps.healthforge.feature.doctors.domain.model.Doctor
+import com.niteshray.xapps.healthforge.feature.doctors.domain.model.Address
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -27,7 +29,8 @@ data class AuthState(
     val token: String? = null,
     val SetupSuccess : Boolean = false,
     val isSetupComplete: Boolean = false,
-    val isSetupLoading: Boolean = false
+    val isSetupLoading: Boolean = false,
+    val isDoctorRegistrationComplete : Boolean = false
 )
 
 @HiltViewModel
@@ -132,6 +135,74 @@ class AuthViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun registerDoctor(
+        name: String,
+        email: String,
+        password: String,
+        speciality: String,
+        degree: String,
+        experience: Int,
+        about: String,
+        fees: Int,
+        address: Address
+    ) {
+        viewModelScope.launch {
+            authState = authState.copy(
+                isLoading = true,
+                errorMessage = null
+            )
+
+            try {
+                val doctor = Doctor(
+                    name = name,
+                    email = email,
+                    password = password,
+                    speciality = speciality,
+                    degree = degree,
+                    experience = experience,
+                    about = about,
+                    fees = fees,
+                    address = address
+                )
+
+                val response = authRepository.registerDoctor(doctor)
+                if (response.isSuccessful && response.body() != null) {
+                    val authResponse = response.body()!!
+                    if (authResponse.success) {
+                        authState = authState.copy(
+                            isLoading = false,
+                            isAuthenticated = true,
+                            token = authResponse.token,
+                            errorMessage = null,
+                            isDoctorRegistrationComplete = true
+                        )
+                        prefStore.saveString(PreferenceKey.AUTH_TOKEN, authResponse.token)
+                        // Also register with Firebase
+                        authRepository.SignUpWithEmail(email, password, name)
+                    } else {
+                        authState = authState.copy(
+                            isLoading = false
+                        )
+                    }
+                } else {
+                    authState = authState.copy(
+                        isLoading = false,
+                        errorMessage = "Doctor registration failed. Please try again."
+                    )
+                }
+            } catch (e: Exception) {
+                authState = authState.copy(
+                    isLoading = false,
+                    errorMessage = e.message ?: "An unexpected error occurred"
+                )
+            }
+        }
+    }
+
+    fun resetDoctorRegistrationState() {
+        authState = authState.copy(isDoctorRegistrationComplete = false)
     }
 
     fun saveHealthInfo(userBasicHealthInfo: UserBasicHealthInfo){

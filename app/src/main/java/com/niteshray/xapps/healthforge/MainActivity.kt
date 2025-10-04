@@ -16,7 +16,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.niteshray.xapps.healthforge.core.permissions.PermissionManager
+import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.DoctorSetupScreen
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.LoginScreen
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.SignupScreen
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.UserSetupScreen
@@ -98,8 +101,12 @@ fun App(permissionManager: PermissionManager){
                 onLoginClick = {
                     navController.navigate(Routes.Login.route)
                 },
-                onSignupSuccess = {
+                onPatientSignupSuccess = {
                     navController.navigate(Routes.UserSetup.route)
+                },
+                onDoctorNavigate = { name, email, password ->
+                    // Navigate to DoctorSetup with user data
+                    navController.navigate(Routes.DoctorSetup.createRoute(name, email, password))
                 }
             )
         }
@@ -128,5 +135,49 @@ fun App(permissionManager: PermissionManager){
                 }
             )
         }
+
+        composable(
+            route = Routes.DoctorSetup.route,
+            arguments = listOf(
+                navArgument("name") { type = NavType.StringType },
+                navArgument("email") { type = NavType.StringType },
+                navArgument("password") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val name = backStackEntry.arguments?.getString("name") ?: ""
+            val email = backStackEntry.arguments?.getString("email") ?: ""
+            val password = backStackEntry.arguments?.getString("password") ?: ""
+            
+            DoctorSetupScreen(
+                userName = name,
+                userEmail = email,
+                userPassword = password,
+                onSetupComplete = {
+                    navController.navigate(Routes.DoctorDashboard.route) {
+                        popUpTo(Routes.DoctorSetup.route) { inclusive = true }
+                    }
+                },
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                authViewModel = authViewModel
+            )
+        }
+
+        composable(Routes.DoctorDashboard.route){
+            DoctorDashboardScreen(
+                onLogout = {
+                    navController.navigate(Routes.Login.route) {
+                        popUpTo(Routes.DoctorDashboard.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
     }
+}
+
+@Composable
+fun DoctorDashboardScreen(onLogout: () -> Unit) {
+
 }

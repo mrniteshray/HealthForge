@@ -50,7 +50,8 @@ import com.niteshray.xapps.healthforge.feature.auth.presentation.viewmodel.AuthV
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SignupScreen(
-    onSignupSuccess: () -> Unit = {},
+    onPatientSignupSuccess: () -> Unit = {},
+    onDoctorNavigate: (String, String, String) -> Unit = { _, _, _ -> }, // name, email, password
     onLoginClick: () -> Unit = {},
     authViewModel: AuthViewModel = hiltViewModel()
 ) {
@@ -163,7 +164,7 @@ fun SignupScreen(
     // Navigate when authenticated
     LaunchedEffect(authState.isAuthenticated) {
         if (authState.isAuthenticated) {
-            onSignupSuccess()
+            onPatientSignupSuccess()
         }
     }
 
@@ -379,7 +380,16 @@ fun SignupScreen(
 
                             if (isFullNameValid && isEmailValid && isPasswordValid &&
                                 isConfirmPasswordValid && isTermsValid) {
-                                authViewModel.registerUser(fullName, email, password)
+                                when (selectedRole) {
+                                    UserRole.PATIENT -> {
+                                        // Register patient immediately
+                                        authViewModel.registerUser(fullName, email, password)
+                                    }
+                                    UserRole.DOCTOR -> {
+                                        // Navigate to doctor setup with user data
+                                        onDoctorNavigate(fullName, email, password)
+                                    }
+                                }
                             }
                         },
                         modifier = Modifier
