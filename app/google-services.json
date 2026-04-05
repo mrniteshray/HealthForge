@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "757909379091",
+    "project_id": "health-forge-c1eee",
+    "storage_bucket": "health-forge-c1eee.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:757909379091:android:2c1c016803b813c63e07e6",
+        "android_client_info": {
+          "package_name": "com.niteshray.xapps.healthforge"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD7Oq-0S830fe06f98eECDggo9gXH4yc3Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
