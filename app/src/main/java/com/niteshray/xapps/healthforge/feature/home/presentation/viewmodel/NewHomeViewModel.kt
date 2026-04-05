@@ -108,6 +108,12 @@ class NewHomeViewModel @Inject constructor(
             Log.d(TAG, "Loading tasks from new tracking system")
 
             try {
+                val currentUser = firebaseAuth.currentUser
+                if (currentUser != null && taskTrackingRepository.getActiveTemplateCount() == 0) {
+                    Log.d(TAG, "No local care plan found, trying Firestore restore for ${currentUser.uid}")
+                    firestoreSyncService.restoreCarePlanFromFirestoreIfNeeded()
+                }
+
                 // Ensure today's records exist first
                 taskTrackingRepository.ensureTodayRecordsExist()
 
@@ -236,7 +242,17 @@ class NewHomeViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to generate tasks from report", e)
-                errorMessage.value = "Failed to analyze report: ${e.message}"
+                val fallbackTasks = createFallbackTasks(medicalReport)
+                if (fallbackTasks.isNotEmpty()) {
+                    fallbackTasks.forEach { template ->
+                        val templateId = taskTrackingRepository.insertTemplate(template)
+                        Log.d(TAG, "Inserted fallback template after AI failure: ${template.title} with ID: $templateId")
+                    }
+                    loadTasks()
+                    errorMessage.value = "AI service is unavailable right now. Generated fallback tasks instead."
+                } else {
+                    errorMessage.value = "Failed to analyze report: ${e.message}"
+                }
             } finally {
                 isLoading.value = false
             }

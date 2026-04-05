@@ -6,15 +6,19 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.niteshray.xapps.healthforge.core.di.AppDatabase
 import com.niteshray.xapps.healthforge.core.di.DataStore
 import com.niteshray.xapps.healthforge.core.di.PreferenceKey
 import com.niteshray.xapps.healthforge.feature.auth.domain.repo.AuthRepository
 import com.niteshray.xapps.healthforge.feature.auth.domain.repo.UserRepository
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.UserBasicHealthInfo
+import com.niteshray.xapps.healthforge.feature.dietbuddy.data.local.database.DietBuddyDatabase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class AuthState(
@@ -32,7 +36,9 @@ data class AuthState(
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val prefStore : DataStore,
-    private val userRepo : UserRepository
+    private val userRepo : UserRepository,
+    private val appDatabase: AppDatabase,
+    private val dietBuddyDatabase: DietBuddyDatabase
 ) : ViewModel() {
 
     var authState by mutableStateOf(AuthState())
@@ -190,24 +196,20 @@ class AuthViewModel @Inject constructor(
     fun performLogout() {
         viewModelScope.launch {
             try {
-                // Clear Firebase authentication
-                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                
-                // Clear AuthToken from DataStore
-                prefStore.remove(PreferenceKey.AUTH_TOKEN)
-                
-                // Clear other user-related data
-                prefStore.remove(PreferenceKey.USER_ID)
-                prefStore.remove(PreferenceKey.USER_EMAIL)
-                prefStore.remove(PreferenceKey.USER_NAME)
+                FirebaseAuth.getInstance().signOut()
+
+                withContext(Dispatchers.IO) {
+                    appDatabase.clearAllTables()
+                    dietBuddyDatabase.clearAllTables()
+                }
+
+                prefStore.clearAll()
                 prefStore.saveBoolean(PreferenceKey.IS_LOGGED_IN, false)
-                
-                // Reset auth state
+
                 authState = AuthState()
                 _authToken.value = ""
                 
             } catch (e: Exception) {
-                // Handle logout error if needed
                 authState = authState.copy(
                     errorMessage = "Error during logout: ${e.message}"
                 )

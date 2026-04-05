@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.niteshray.xapps.healthforge.feature.auth.presentation.compose.*
-import com.niteshray.xapps.healthforge.feature.auth.presentation.viewmodel.AuthViewModel
 import com.niteshray.xapps.healthforge.feature.home.presentation.viewmodel.ProfileViewModel
 import com.niteshray.xapps.healthforge.feature.home.presentation.viewmodel.UserProfileData
 
@@ -34,7 +33,6 @@ import com.niteshray.xapps.healthforge.feature.home.presentation.viewmodel.UserP
 fun ProfileScreen(
     modifier: Modifier = Modifier,
     onLogout: () -> Unit = {},
-    authViewModel: AuthViewModel = hiltViewModel(),
     profileViewModel: ProfileViewModel = hiltViewModel()
 ) {
     val profileUiState by profileViewModel.uiState.collectAsStateWithLifecycle()
@@ -121,7 +119,6 @@ fun ProfileScreen(
         ModernLogoutDialog(
             onConfirm = {
                 showLogoutDialog = false
-                authViewModel.performLogout()
                 onLogout()
             },
             onDismiss = { showLogoutDialog = false }

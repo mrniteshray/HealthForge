@@ -209,6 +209,52 @@ class FirestoreTaskSyncService @Inject constructor(
     }
 
     /**
+     * Restore the current user's care plan from Firestore into local Room storage.
+     * Returns true when at least one template was restored.
+     */
+    suspend fun restoreCarePlanFromFirestoreIfNeeded(): Boolean {
+        return try {
+            val userId = getCurrentUserId() ?: return false
+
+            if (taskTrackingRepository.getActiveTemplateCount() > 0) {
+                Log.d(TAG, "Local care plan already exists for user: $userId")
+                return false
+            }
+
+            val remoteTemplates = fetchTaskTemplatesFromFirestore()
+            if (remoteTemplates.isEmpty()) {
+                Log.d(TAG, "No remote care plan found for user: $userId")
+                return false
+            }
+
+            remoteTemplates.forEach { template ->
+                val restoredTemplate = template.copy(
+                    id = template.id,
+                    firestoreId = template.firestoreId
+                )
+                taskTrackingRepository.insertTemplate(restoredTemplate)
+            }
+
+            // Recreate today's local records first so the home screen can render immediately.
+            taskTrackingRepository.ensureTodayRecordsExist()
+
+            // Pull recent completion history so analytics and progress state remain available.
+            val today = DailyTaskRecord.getTodayDateString()
+            val thirtyDaysAgo = calculateDateDaysAgo(30)
+            val remoteRecords = fetchDailyRecordsFromFirestore(thirtyDaysAgo, today)
+            remoteRecords.forEach { record ->
+                taskTrackingRepository.insertRecord(record)
+            }
+
+            Log.d(TAG, "Restored ${remoteTemplates.size} templates and ${remoteRecords.size} records from Firestore")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restore care plan from Firestore", e)
+            false
+        }
+    }
+
+    /**
      * Full sync - upload all local data to Firestore
      */
     suspend fun performFullUploadSync() {

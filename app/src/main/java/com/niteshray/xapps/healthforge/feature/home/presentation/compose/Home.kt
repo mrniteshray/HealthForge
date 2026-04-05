@@ -13,7 +13,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.niteshray.xapps.healthforge.feature.careconnect.CareConnectScreen
 import com.niteshray.xapps.healthforge.feature.dietbuddy.presentation.compose.DietBuddyScreen
 
 @Composable
@@ -27,7 +26,6 @@ fun HomeScreen(
     val bottomNavItems = listOf(
         BottomNavItem.Home,
         BottomNavItem.DietBuddy,
-        BottomNavItem.CareConnect,
         BottomNavItem.Profile
     )
 
@@ -66,10 +64,7 @@ fun HomeScreen(
                 DietBuddyScreen()
             }
             composable(BottomNavItem.Profile.route) {
-                ProfileScreen()
-            }
-            composable(BottomNavItem.CareConnect.route){
-                CareConnectScreen()
+                ProfileScreen(onLogout = onLogout)
             }
         }
     }

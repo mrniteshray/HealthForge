@@ -141,7 +141,7 @@ fun App(){
                 onLogout = {
                     authViewModel.performLogout()
                     navController.navigate(Routes.Login.route) {
-                        popUpTo(Routes.Home.route) { inclusive = true }
+                        popUpTo(navController.graph.id) { inclusive = true }
                         launchSingleTop = true
                     }
                 },

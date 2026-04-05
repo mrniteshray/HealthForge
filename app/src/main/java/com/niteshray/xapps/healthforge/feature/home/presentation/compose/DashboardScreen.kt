@@ -289,12 +289,9 @@ fun HealthcareDashboard(
     // Notification Dialog
     if (notificationUiState.showNotificationDialog) {
         com.niteshray.xapps.healthforge.feature.notifications.presentation.compose.NotificationDialog(
-            pendingRequests = notificationUiState.pendingRequests,
             isLoading = notificationUiState.isLoading,
             error = notificationUiState.error,
             onDismiss = { notificationViewModel.hideNotificationDialog() },
-            onAcceptRequest = { requestId -> notificationViewModel.acceptGuardianRequest(requestId) },
-            onRejectRequest = { requestId -> notificationViewModel.rejectGuardianRequest(requestId) },
             onClearError = { notificationViewModel.clearError() }
         )
     }

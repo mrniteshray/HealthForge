@@ -1,5 +1,6 @@
 package com.niteshray.xapps.healthforge.core.di
 
+import com.niteshray.xapps.healthforge.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -35,9 +36,13 @@ class NetworkModule {
     @Provides
     @Singleton
     fun provideGeminiGenerativeModel(): GenerativeModel {
+        require(BuildConfig.GEMINI_API_KEY.isNotBlank()) {
+            "GEMINI_API_KEY is missing. Add a valid key to local.properties."
+        }
+
         return GenerativeModel(
-            modelName = "gemini-2-flash-lite",
-            apiKey = "AIzaSyB4ag90kbHyPftHmBs6AbF8j_CDjrnlUDM"
+            modelName = "gemini-2.5-flash",
+            apiKey = BuildConfig.GEMINI_API_KEY
         )
     }
 
