@@ -135,6 +135,15 @@ class AssistantViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(isListening = false)
     }
 
+    fun onScreenExit() {
+        listeningJob?.cancel()
+        viewModelScope.launch {
+            assistantRepository.stopListening()
+            assistantRepository.stopSpeaking()
+        }
+        _uiState.value = _uiState.value.copy(isListening = false)
+    }
+
     fun toggleTts() {
         _uiState.value = _uiState.value.copy(
             isTtsEnabled = !_uiState.value.isTtsEnabled
@@ -172,7 +181,7 @@ class AssistantViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        listeningJob?.cancel()
+        onScreenExit()
     }
 }
 

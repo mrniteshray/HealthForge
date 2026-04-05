@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 interface AssistantRepository {
     suspend fun sendMessage(message: String, context: List<ChatMessage>): Result<String>
     suspend fun speakText(text: String)
+    suspend fun stopSpeaking()
     suspend fun startListening(): Flow<String>
     suspend fun stopListening()
     fun isListening(): Boolean
