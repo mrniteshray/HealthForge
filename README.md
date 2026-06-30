@@ -24,3 +24,4 @@ If `GEMINI_API_KEY` is missing, app startup will fail fast with a clear error.
 ```bash
 ./gradlew :app:assembleDebug
 ```
+##Thank you
