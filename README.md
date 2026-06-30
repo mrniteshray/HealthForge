@@ -17,8 +17,6 @@ Android app for health task management, assistant chat, analytics, and care conn
 GEMINI_API_KEY=your_actual_gemini_api_key
 ```
 
-If `GEMINI_API_KEY` is missing, app startup will fail fast with a clear error.
-
 ## Build
 
 ```bash
